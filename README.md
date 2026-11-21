@@ -6,6 +6,8 @@ Jogo de celular em realidade aumentada com o **surucuá-variado**, ave real da M
 
 Sem Firebase, tudo fica salvo só no aparelho. É o jeito mais rápido de testar.
 
+Mesmo com Firebase configurado, o progresso pessoal (XP, pets e itens) fica neste navegador e não sincroniza automaticamente com outro celular. As publicações do feed são salvas no servidor e podem ser apagadas pelo navegador em que foram feitas; trocar de aparelho ou limpar os dados locais pode impedir essa remoção.
+
 1. Suba a pasta inteira no GitHub Pages ou na Hostinger. A câmera só funciona em **https**.
 2. Para testar no computador: `python3 -m http.server 8000` dentro da pasta e abra `http://localhost:8000`.
 3. Edite `config.js` para trocar missões, lojas, espécies, dicas e prêmios.

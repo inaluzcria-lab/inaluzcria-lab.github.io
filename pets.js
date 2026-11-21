@@ -95,10 +95,12 @@
   /* Acessórios de Natal do surucuá, posicionados no modelo normalizado (altura ≈ 0,66). */
   const ACC = {
     gorro: (gold) => { const g = new THREE.Group();
-      const cone = new THREE.Mesh(new THREE.ConeGeometry(.11, .26, 24), mat(gold ? 0xf2b632 : 0xd8312f, gold ? { metalness: .5, roughness: .3 } : {})); cone.position.y = .13; cone.rotation.z = .35; g.add(cone);
-      const brim = new THREE.Mesh(new THREE.TorusGeometry(.11, .035, 10, 24), mat(0xffffff)); brim.rotation.x = Math.PI / 2; g.add(brim);
-      const pom = new THREE.Mesh(new THREE.SphereGeometry(.04, 12, 10), mat(0xffffff)); pom.position.set(-.09, .25, 0); g.add(pom);
-      g.position.set(0, .64, .02); return g; },
+      /* o cone gira pela base (dentro da aba branca), então o vermelho não escapa para fora da aba */
+      const pivot = new THREE.Group(); pivot.rotation.z = .3; g.add(pivot);
+      const cone = new THREE.Mesh(new THREE.ConeGeometry(.118, .3, 24), mat(gold ? 0xf2b632 : 0xd8312f, gold ? { metalness: .5, roughness: .3 } : {})); cone.position.y = .15; pivot.add(cone);
+      const brim = new THREE.Mesh(new THREE.TorusGeometry(.115, .04, 10, 24), mat(0xffffff)); brim.rotation.x = Math.PI / 2; g.add(brim);
+      const pom = new THREE.Mesh(new THREE.SphereGeometry(.04, 12, 10), mat(0xffffff)); pom.position.y = .3; pivot.add(pom);
+      g.position.set(0, .6, .07); g.rotation.x = -.2; return g; },
     laco: () => { const g = new THREE.Group(), red = mat(0xd8312f);
       [-1, 1].forEach(k => { const w = new THREE.Mesh(new THREE.ConeGeometry(.045, .09, 12), red); w.rotation.z = k * Math.PI / 2; w.position.x = k * .045; g.add(w); });
       g.add(new THREE.Mesh(new THREE.SphereGeometry(.025, 10, 8), red)); g.position.set(.1, .63, .06); g.rotation.z = -.4; return g; },

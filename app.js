@@ -210,7 +210,7 @@
   function examplePosts() {
     const n = Date.now(), c = [-22.4565, -43.4685], route = [];
     for (let i = 0; i <= 24; i++) { const t = i / 24; route.push(+(c[0] + .004 * Math.sin(t * 3.2) - .002 * t).toFixed(4), +(c[1] + .009 * t + .0015 * Math.sin(t * 9)).toFixed(4)); }
-    return [{ id: "ex1", kind: "mission", nick: "Lia", missionId: "cheirin", pet: "surucua", pets: ["surucua"], xp: 80, places: 3, km: 1.8, claps: 42, createdAt: n - 2 * HOUR, photo: "assets/chocolatissimo.jpg", example: true },
+    return [{ id: "ex1", kind: "mission", nick: "Lia", missionId: "cheirin", pet: "surucua", pets: ["surucua"], xp: 80, places: 3, km: 1.8, claps: 42, createdAt: n - 2 * HOUR, photo: "assets/cafezinho.jpg", example: true },
             { id: "ex2", kind: "expedition", nick: "Seu Jorge", title: "Rota das luzes de Natal", missions: ["pinheiros", "agape", "cheirin"], pet: "surucua", pets: ["surucua"], xp: 230, km: 2.1, mins: 48, places: 3, claps: 28, createdAt: n - 5 * HOUR, route, example: true },
             { id: "ex3", kind: "mission", nick: "Bia", missionId: "pinheiros", pet: "surucua", pets: ["surucua"], xp: 100, places: 1, claps: 57, createdAt: n - 26 * HOUR, club: "ESCOLA", clubName: "Escola Municipal", example: true }];
   }
@@ -1626,7 +1626,10 @@
       h("div", { class: "prof" }, h("img", { class: "lv", src: "assets/medal-level.png", alt: "" }),
         h("h2", null, S.nick + " · Nível " + lv), h("button", { class: "linkbtn", on: { click: editNick } }, "Trocar apelido"),
         h("div", { class: "meter lightmeter", style: { maxWidth: "15rem", margin: ".4rem auto" } }, h("span", { style: { width: (into / 150 * 100) + "%" } })),
-        h("small", { style: { color: "var(--mute)" }, text: S.xp + " XP · Sequência: " + S.streak.n + " dia" + (S.streak.n === 1 ? "" : "s") })),
+        h("small", { style: { color: "var(--mute)" }, text: S.xp + " XP · Sequência: " + S.streak.n + " dia" + (S.streak.n === 1 ? "" : "s") }),
+        h("div", { class: "card", style: { textAlign: "left", marginTop: ".8rem" } },
+          h("b", { text: "Dica: o progresso não sincroniza" }),
+          h("p", { style: { margin: ".35rem 0 0", fontSize: ".85rem" }, text: "Você não precisa criar conta para jogar. XP, pets e itens ficam neste navegador e podem não aparecer em outro celular. As publicações ficam no servidor; para apagá-las, use o navegador em que publicou e mantenha os dados locais." }))),
       h("div", { class: "wrap" },
         h("div", { class: "invite" }, h("small", { text: "Seu código de convite" }), h("div", { class: "c", text: S.code }),
           h("small", { text: "Quem entrar pelo seu link ganha 1 Caixinha de Natal." }),
@@ -1646,8 +1649,7 @@
         h("label", { class: "switch" }, "Voz do guia", h("input", { type: "checkbox", checked: S.voice, on: { change: e => { S.voice = e.target.checked; save(); } } })),
         installBtn(),
         h("button", { class: "btn alt", style: { marginTop: ".6rem" }, on: { click: () => show("partner") } }, "Tenho uma loja"),
-        h("button", { class: "btn alt", style: { marginTop: ".6rem" }, on: { click: privacy } }, "Privacidade e dados"),
-        h("p", { class: "demo", text: DB.mode === "demo" ? "Modo demonstração: seus dados ficam só neste aparelho." : "Conectado. Você joga com um apelido, sem cadastro." })));
+        h("button", { class: "btn alt", style: { marginTop: ".6rem" }, on: { click: privacy } }, "Privacidade e dados")));
   }
   function ficha(p) {
     const sp = SP[p], has = !!S.pets[p], where = MISS.find(m => m.pet === p);
@@ -1689,7 +1691,8 @@
       h("ul", { class: "plist" },
         h("li", { text: "No mapa, as ruas vêm do OpenStreetMap: o celular pede as imagens do mapa direto para eles." }),
         h("li", { text: "A câmera e o microfone são usados só no seu celular. O áudio nunca é gravado nem enviado." }),
-        h("li", { text: "A foto da missão vai para o feed em tamanho pequeno, com seu apelido. Você pode apagar o post quando quiser." }),
+        h("li", { text: "A foto da missão vai para o feed em tamanho pequeno, com seu apelido. Você pode apagar o post pelo navegador em que publicou, enquanto os dados locais forem mantidos." }),
+        h("li", { text: "Dica: seu XP, pets e itens ficam neste navegador e não sincronizam com outro celular. As publicações ficam no servidor, mas trocar de aparelho ou apagar os dados locais pode tirar seu acesso para removê-las." }),
         h("li", { text: "Na expedição, o trajeto é publicado sem os primeiros e os últimos " + C.routePrivacyMeters + " m e com precisão reduzida, para não mostrar onde você mora." }),
         h("li", { text: "Posts de outras pessoas podem ser denunciados no botão ⋯." }),
         h("li", { text: "Não pedimos nome, e-mail nem telefone para jogar." }),
@@ -1748,8 +1751,8 @@
     let model = "foto", pet = "sabia";
     const chips = h("div", { class: "chips" }, models.map(([k, l]) => h("button", { class: "chip" + (k === model ? " on" : ""), "data-k": k, on: { click: () => { model = k; chips.querySelectorAll(".chip").forEach(c => c.classList.toggle("on", c.dataset.k === k)); } } }, l)));
     const store = h("input", { type: "text", maxLength: 60, placeholder: "Nome da loja", autocomplete: "organization" });
-    const subject = h("input", { type: "text", maxLength: 60, placeholder: "O que aparece na foto (ex.: Chocolatíssimo na vitrine)", autocomplete: "off" });
-    const gift = h("input", { type: "text", maxLength: 60, placeholder: "Presente certo (ex.: 10% no Chocolatíssimo)", autocomplete: "off" });
+    const subject = h("input", { type: "text", maxLength: 60, placeholder: "O que aparece na foto (ex.: Cafezinho na caneca da casa)", autocomplete: "off" });
+    const gift = h("input", { type: "text", maxLength: 60, placeholder: "Presente certo (ex.: 10% no cafezinho)", autocomplete: "off" });
     const petBtn = h("button", { class: "card who petpick", on: { click: () => { const ids = PETS; pet = ids[(ids.indexOf(pet) + 1) % ids.length]; put(petBtn, h("img", { src: T[pet], alt: "", style: { width: "2.8rem" } }), h("div", { style: { flex: "1", textAlign: "left" } }, h("b", { text: "Bicho da sua loja" }), h("small", { text: SP[pet].name + " · toque para trocar" }))); } } },
       h("img", { src: T[pet], alt: "", style: { width: "2.8rem" } }), h("div", { style: { flex: "1", textAlign: "left" } }, h("b", { text: "Bicho da sua loja" }), h("small", { text: SP[pet].name + " · toque para trocar" })));
     return h("div", { class: "card" }, h("b", { style: { fontSize: "1.1rem", color: "var(--forest)" }, text: "Criar missão (a loja faz sozinha)" }),
@@ -1784,8 +1787,12 @@
     const steps = [
       () => [h("img", { src: T.surucua, alt: "", class: "onbimg" }), h("h2", { text: "Oi! Eu sou o " + C.guideName }),
         h("p", { text: "Visite lugares de " + C.city + ", encontre bichos da serra em realidade aumentada e cuide deles no seu jardim." })],
-      () => [h("h2", { text: "Seus dados ficam com você" }),
-        h("ul", { class: "plist", style: { textAlign: "left" } }, h("li", { text: "Você joga com um apelido, sem cadastro." }), h("li", { text: "Você decide o que posta e pode apagar quando quiser." }), h("li", { text: "Seu trajeto aparece sem o começo e o fim." })),
+      () => [h("h2", { text: "Você não precisa criar conta" }),
+        h("ul", { class: "plist", style: { textAlign: "left" } },
+          h("li", { text: "Dica: seu progresso pessoal (XP, pets e itens) fica neste navegador e não sincroniza com outro celular." }),
+          h("li", { text: "As publicações ficam no servidor. Você pode apagá-las pelo navegador em que publicou; se trocar de aparelho ou apagar os dados locais, pode perder o acesso para removê-las." }),
+          h("li", { text: "Você joga com um apelido e decide o que compartilhar." }),
+          h("li", { text: "Seu trajeto aparece sem o começo e o fim." })),
         h("button", { class: "opt", "aria-pressed": String(S.big), on: { click: e => { toggleBig(); e.currentTarget.setAttribute("aria-pressed", String(S.big)); } } }, h("span", { class: "dot" }), "Usar letra grande")],
       () => [h("h2", { text: "Seu apelido" }), h("p", { text: "Ele aparece no feed. Use um apelido, não seu nome completo." }), nick,
         S.ref ? h("p", { class: "coupon", text: "Você veio por um convite: ganhou 1 Caixinha!" }) : null]
