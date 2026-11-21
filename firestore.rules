@@ -1,0 +1,182 @@
+rules_version = '2';
+// Regras do Firestore. Princípio: tudo é negado, exceto o que está liberado abaixo.
+// Toda gravação é validada aqui, no servidor: campos, tipos, tamanhos, dono, hora e frequência.
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() { return request.auth != null; }
+    function isMe(uid) { return signedIn() && request.auth.uid == uid; }
+    function slug(s) { return s is string && s.matches('^[a-z0-9-]{2,24}$'); }
+    function text(s, max) { return s is string && s.size() >= 1 && s.size() <= max; }
+    function photoOk(s, max) { return s is string && s.size() <= max && s.matches('^data:image/jpeg;base64,[A-Za-z0-9+/=]+$'); }
+    function numIn(v, lo, hi) { return (v is int || v is float) && v >= lo && v <= hi; }
+    function userPath() { return /databases/$(database)/documents/users/$(request.auth.uid); }
+    // Gravou agora o campo `field` do perfil e a gravação anterior foi há mais de 30 s.
+    function throttled(field) {
+      return getAfter(userPath()).data[field] == request.time
+        && (!exists(userPath()) || !(field in get(userPath()).data)
+            || get(userPath()).data[field] < request.time - duration.value(30, 's'));
+    }
+    function opt(d, k) { return !(k in d); }
+
+    // Perfil mínimo: apelido e horários dos últimos posts. Só a própria pessoa lê e escreve.
+    match /users/{uid} {
+      allow read, delete: if isMe(uid);
+      allow create, update: if isMe(uid)
+        && request.resource.data.keys().hasOnly(['nick', 'lastPostAt', 'lastPlaceAt'])
+        && text(request.resource.data.nick, 20)
+        && (opt(request.resource.data, 'lastPostAt') || request.resource.data.lastPostAt == request.time
+            || (resource != null && request.resource.data.lastPostAt == resource.data.lastPostAt))
+        && (opt(request.resource.data, 'lastPlaceAt') || request.resource.data.lastPlaceAt == request.time
+            || (resource != null && request.resource.data.lastPlaceAt == resource.data.lastPlaceAt));
+    }
+
+    // Feed público: apelido, foto reduzida (opcional), XP, km, trajeto resumido.
+    match /posts/{pid} {
+      allow read: if true;
+      allow create: if signedIn() && validPost(request.resource.data) && throttled('lastPostAt');
+      // Só o contador de aplausos muda, de 1 em 1, junto com o documento claps/{uid}.
+      allow update: if signedIn()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['claps'])
+        && (
+          (request.resource.data.claps == resource.data.claps + 1
+            && !exists(/databases/$(database)/documents/posts/$(pid)/claps/$(request.auth.uid))
+            && existsAfter(/databases/$(database)/documents/posts/$(pid)/claps/$(request.auth.uid)))
+          ||
+          (request.resource.data.claps == resource.data.claps - 1
+            && exists(/databases/$(database)/documents/posts/$(pid)/claps/$(request.auth.uid))
+            && !existsAfter(/databases/$(database)/documents/posts/$(pid)/claps/$(request.auth.uid)))
+        );
+      allow delete: if isMe(resource.data.uid);
+
+      match /claps/{uid} {
+        allow read: if isMe(uid);
+        allow create: if isMe(uid) && request.resource.data.keys().hasOnly(['at'])
+          && getAfter(/databases/$(database)/documents/posts/$(pid)).data.claps
+             == get(/databases/$(database)/documents/posts/$(pid)).data.claps + 1;
+        allow delete: if isMe(uid)
+          && getAfter(/databases/$(database)/documents/posts/$(pid)).data.claps
+             == get(/databases/$(database)/documents/posts/$(pid)).data.claps - 1;
+      }
+    }
+    function validPost(d) {
+      return d.keys().hasOnly(['uid', 'kind', 'nick', 'missionId', 'missions', 'title', 'pet', 'pets', 'xp', 'km', 'mins', 'places', 'photo', 'route', 'club', 'clubName', 'claps', 'createdAt'])
+        && d.uid == request.auth.uid
+        && d.kind in ['mission', 'expedition', 'place']
+        && text(d.nick, 20) && slug(d.pet)
+        && d.xp is int && d.xp >= 0 && d.xp <= 2000
+        && d.claps == 0 && d.createdAt == request.time
+        && (opt(d, 'missionId') || slug(d.missionId))
+        && (opt(d, 'missions') || (d.missions is list && d.missions.size() <= 20))
+        && (opt(d, 'pets') || (d.pets is list && d.pets.size() <= 10))
+        && (opt(d, 'title') || text(d.title, 60))
+        && (opt(d, 'km') || numIn(d.km, 0, 100))
+        && (opt(d, 'mins') || (d.mins is int && d.mins >= 0 && d.mins <= 1440))
+        && (opt(d, 'places') || (d.places is int && d.places >= 0 && d.places <= 50))
+        && (opt(d, 'photo') || photoOk(d.photo, 160000))
+        && (opt(d, 'route') || (d.route is list && d.route.size() <= 240))
+        && (opt(d, 'club') || (d.club is string && d.club.matches('^[A-Z2-9]{6}$') && text(d.clubName, 24)));
+    }
+
+    // Meta da cidade: só soma 1, e só junto com um post novo.
+    // Crie stats/city com { photos: 0 } pelo console antes de abrir o jogo.
+    match /stats/{doc} {
+      allow read: if true;
+      allow update: if doc == 'city' && signedIn()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['photos'])
+        && request.resource.data.photos == resource.data.photos + 1
+        && getAfter(userPath()).data.lastPostAt == request.time;
+    }
+
+    // Lugares marcados pelos jogadores. Quem marca já conta como 1 visita.
+    match /places/{id} {
+      allow read: if true;
+      allow create: if signedIn()
+        && request.resource.data.keys().hasOnly(['uid', 'nick', 'name', 'type', 'lat', 'lng', 'confirms', 'photo', 'createdAt'])
+        && request.resource.data.uid == request.auth.uid
+        && text(request.resource.data.nick, 20)
+        && request.resource.data.name is string && request.resource.data.name.size() >= 2 && request.resource.data.name.size() <= 40
+        && request.resource.data.type in ['agua', 'mata', 'praca', 'mirante', 'comercio']
+        && numIn(request.resource.data.lat, -90, 90) && numIn(request.resource.data.lng, -180, 180)
+        && request.resource.data.confirms == 1
+        && request.resource.data.createdAt == request.time
+        && (opt(request.resource.data, 'photo') || photoOk(request.resource.data.photo, 120000))
+        && existsAfter(/databases/$(database)/documents/places/$(id)/visits/$(request.auth.uid))
+        && throttled('lastPlaceAt');
+      // Confirmação: +1, uma por pessoa (documento visits/{uid}).
+      allow update: if signedIn()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['confirms'])
+        && request.resource.data.confirms == resource.data.confirms + 1
+        && !exists(/databases/$(database)/documents/places/$(id)/visits/$(request.auth.uid))
+        && existsAfter(/databases/$(database)/documents/places/$(id)/visits/$(request.auth.uid));
+      allow delete: if isMe(resource.data.uid);
+
+      match /visits/{uid} {
+        allow read: if isMe(uid);
+        allow create: if isMe(uid) && request.resource.data.keys().hasOnly(['at'])
+          && (!exists(/databases/$(database)/documents/places/$(id))
+              || getAfter(/databases/$(database)/documents/places/$(id)).data.confirms
+                 == get(/databases/$(database)/documents/places/$(id)).data.confirms + 1);
+      }
+    }
+
+    // "Este lugar é meu?": só cria. A equipe confere o dono por telefone ou nota antes de valer.
+    match /claims/{cid} {
+      allow create: if signedIn()
+        && request.resource.data.keys().hasOnly(['placeId', 'store', 'contact', 'plan', 'consent', 'createdAt'])
+        && request.resource.data.placeId is string && request.resource.data.placeId.size() <= 40
+        && text(request.resource.data.store, 60) && text(request.resource.data.contact, 60)
+        && request.resource.data.plan in ['gratis', 'parceiro']
+        && request.resource.data.consent == true
+        && request.resource.data.createdAt == request.time;
+    }
+
+    // Missão criada pela loja: entra pendente. Só aparece no jogo quando a equipe muda status para 'ok'.
+    match /storeMissions/{mid} {
+      allow read: if resource.data.status == 'ok';
+      allow create: if signedIn()
+        && request.resource.data.keys().hasOnly(['uid', 'store', 'model', 'subject', 'gift', 'pet', 'status', 'createdAt'])
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.status == 'pending'
+        && text(request.resource.data.store, 60) && text(request.resource.data.subject, 60)
+        && request.resource.data.gift is string && request.resource.data.gift.size() <= 60
+        && request.resource.data.model in ['foto', 'visitas', 'sabado', 'dupla']
+        && slug(request.resource.data.pet)
+        && request.resource.data.createdAt == request.time;
+    }
+
+    // Denúncia de post: só cria. A equipe lê pelo console.
+    match /reports/{rid} {
+      allow create: if signedIn()
+        && request.resource.data.keys().hasOnly(['postId', 'reason', 'uid', 'createdAt'])
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.postId is string && request.resource.data.postId.size() <= 40
+        && request.resource.data.reason in ['pessoa', 'ofensivo', 'perigo', 'outro']
+        && request.resource.data.createdAt == request.time;
+    }
+
+    // Pedido de impressão: só um código. A foto nunca é enviada.
+    match /orders/{oid} {
+      allow read, delete: if isMe(resource.data.uid);
+      allow create: if signedIn()
+        && request.resource.data.keys().hasOnly(['uid', 'code', 'missionId', 'createdAt'])
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.code is string && request.resource.data.code.matches('^[A-Z0-9]{6}$')
+        && slug(request.resource.data.missionId)
+        && request.resource.data.createdAt == request.time;
+    }
+
+    // Contato de lojista: só cria. Ninguém lê pelo app.
+    match /leads/{lid} {
+      allow create: if signedIn()
+        && request.resource.data.keys().hasOnly(['store', 'contact', 'consent', 'createdAt'])
+        && text(request.resource.data.store, 60) && text(request.resource.data.contact, 60)
+        && request.resource.data.consent == true
+        && request.resource.data.createdAt == request.time;
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

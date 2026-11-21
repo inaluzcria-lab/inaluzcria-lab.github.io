@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://www.gstatic.com; connect-src 'self' https://tile.openstreetmap.org https://*.googleapis.com https://*.firebaseio.com wss://*.firebaseio.com https://www.gstatic.com; img-src 'self' data: blob: https://tile.openstreetmap.org; media-src 'self' blob:; style-src 'self' 'unsafe-inline'; font-src 'self'; worker-src 'self' blob: data:; manifest-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
+<meta name="referrer" content="strict-origin-when-cross-origin">
+<meta name="theme-color" content="#1f4a2e">
+<title>Expedições de Miguel Pereira</title>
+<meta name="description" content="Missões de foto de Natal em Miguel Pereira com pets da fauna da serra em realidade aumentada.">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="assets/icon-192.png">
+<link rel="apple-touch-icon" href="assets/icon-192.png">
+<link rel="stylesheet" href="vendor/leaflet/leaflet.css">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div id="app">
+  <header class="hdr">
+    <span class="logo"><img src="assets/surucua.png" alt=""></span>
+    <h1>Expedições de Miguel Pereira<small id="hdrseason">um jogo ZingPlace</small></h1>
+    <button class="iconbtn" id="boxbtn" aria-label="Caixinha de Natal"></button>
+  </header>
+
+  <main id="main">
+    <section class="view on" id="v-feed" aria-label="Início"></section>
+    <section class="view" id="v-map" aria-label="Mapa"></section>
+    <section class="view" id="v-garden" aria-label="Meu jardim"></section>
+    <section class="view" id="v-profile" aria-label="Perfil"></section>
+    <section class="view" id="v-partner" aria-label="Para lojas"></section>
+  </main>
+
+  <nav class="tabbar" id="tabbar" aria-label="Navegação"></nav>
+
+  <section id="v-cam" aria-label="Câmera">
+    <video id="vid" playsinline muted autoplay></video>
+    <canvas id="fallback" width="540" height="960"></canvas>
+    <canvas id="arcv"></canvas>
+    <div class="camtop"><button class="glass" id="camclose">Fechar</button><span class="glass" id="camlabel"></span></div>
+    <div class="chat" id="chat"></div>
+    <div class="camctl">
+      <div class="camhint" id="camhint"></div>
+      <div class="camrow"><button class="glass" id="campick">Galeria</button><button class="shutter" id="camshoot" aria-label="Tirar foto"></button><span class="glass" id="camxp"></span></div>
+    </div>
+  </section>
+
+  <div class="sheet" id="sheet" role="dialog" aria-modal="true"><div id="sheetbody"></div></div>
+  <div class="onb" id="onb"></div>
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+  <input type="file" id="filepick" accept="image/*" hidden>
+</div>
+
+<script src="vendor/three-locar.js"></script>
+<script src="vendor/leaflet/leaflet.js"></script>
+<script src="vendor/qrcode.js"></script>
+<script src="config.js"></script>
+<script src="db.js"></script>
+<script src="pets.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
