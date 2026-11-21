@@ -210,11 +210,22 @@ input[type=text],input[type=tel],select{width:100%;font:inherit;font-size:16px;p
 .petchip.on{border-color:var(--forest)}
 .petchip img{width:2.5rem;height:2.5rem;object-fit:contain}
 .petchip i{position:absolute;top:-3px;right:-3px;width:.9rem;height:.9rem;border-radius:50%;background:var(--red);border:2px solid #fff}
-.carebars{position:absolute;left:.7rem;right:.7rem;bottom:5.6rem;z-index:2;background:rgba(255,255,255,.95);border-radius:1rem;padding:.6rem .8rem;display:grid;gap:.35rem}
+.care-notice{position:absolute;top:4.1rem;left:.7rem;z-index:3;display:flex;align-items:center;gap:.45rem;max-width:calc(100% - 1.4rem);min-height:2.7rem;padding:.55rem .75rem;border:1px solid rgba(31,74,46,.18);border-radius:1rem;background:rgba(255,255,255,.96);color:var(--forest);font:inherit;font-weight:700;box-shadow:0 3px 12px rgba(0,0,0,.14);cursor:pointer;text-align:left}
+.care-notice[hidden]{display:none}
+.care-icon{font-size:1.15rem;line-height:1}
+.care-text{white-space:nowrap}
+.care-arrow{font-size:1.1rem;line-height:1;margin-left:.15rem}
+.carepanel{position:absolute;top:4.1rem;left:.7rem;z-index:3;display:none;width:min(15rem,calc(100% - 1.4rem));padding:.7rem .8rem;background:rgba(255,255,255,.97);border:1px solid rgba(31,74,46,.18);border-radius:1rem;box-shadow:0 5px 16px rgba(0,0,0,.18)}
+.garden.has-need .carepanel{top:7.1rem}
+.carepanel.open{display:grid;gap:.55rem}
+.carepanel-head{display:flex;align-items:center;justify-content:space-between;gap:.5rem;color:var(--forest);font-size:.85rem}
+.care-close{flex:none;width:2rem;height:2rem;border:0;border-radius:50%;background:#f3f5ef;color:var(--forest);font-size:1.5rem;line-height:1;cursor:pointer}
+.carelevels{display:grid;gap:.45rem}
 .cb{display:flex;align-items:center;gap:.4rem;font-size:.75rem;font-weight:700}
-.cb span{width:3.8rem}
-.cb div{flex:1;height:.55rem;background:#e8e1cf;border-radius:1rem;overflow:hidden}
-.cb i{display:block;height:100%;border-radius:1rem;transition:width .6s}
+.cb>span{flex:none;width:3.8rem}
+.care-meter{flex:1;height:.55rem;background:#e8e1cf;border-radius:1rem;overflow:hidden}
+.care-fill{display:block;height:100%;border-radius:1rem;transition:width .6s}
+.care-value{flex:none;width:2.2rem;text-align:right;font-size:.7rem}
 .awaycard{position:absolute;inset:4rem 1rem 1rem;z-index:3;background:rgba(247,242,229,.97);border-radius:1.2rem;display:grid;place-content:center;justify-items:center;text-align:center;padding:1.2rem;gap:.4rem}
 .awaycard img{width:7rem;opacity:.45;filter:grayscale(.5)}
 .awaycard h3{color:var(--forest);margin:0}
@@ -310,3 +321,17 @@ button.gchip{border:0;cursor:pointer;position:relative;font:inherit;font-weight:
 /* ---- compartilhar expedição ---- */
 .sharepv{display:block;width:100%;max-height:52vh;object-fit:contain;border-radius:.8rem;background:#e7e0cc;margin-bottom:.4rem}
 .sharepv.transp{background:repeating-conic-gradient(#555 0 25%,#777 0 50%) 0 0/24px 24px}
+/* ---- bandeja de comidinhas (alimentar estilo Talking Tom) ---- */
+.foodtray{position:absolute;left:.7rem;right:.7rem;bottom:.7rem;z-index:3;background:#fff;border-radius:1rem;padding:.55rem .6rem .5rem;box-shadow:0 8px 20px -8px rgba(0,0,0,.45)}
+.traytop{display:flex;align-items:center;justify-content:space-between;font-size:.85rem;color:var(--forest);margin-bottom:.35rem}
+.trayrow{display:flex;gap:.45rem;overflow-x:auto;padding-bottom:.2rem;touch-action:pan-x}
+.fooditem{position:relative;flex:0 0 3.9rem;display:grid;justify-items:center;gap:.1rem;padding:.35rem .15rem;border:1.5px solid #e4dcc6;border-radius:.9rem;background:#fbf7ec;cursor:grab;touch-action:none;font:inherit}
+.fooditem.off{opacity:.45;cursor:default}
+.fooditem small{font-size:.68rem;font-weight:700;color:var(--forest);line-height:1.1;text-align:center}
+.foodn{position:absolute;top:.2rem;right:.3rem;font-size:.7rem;color:#555}
+.favstar{position:absolute;top:.15rem;left:.35rem;color:#e0a400;font-style:normal;font-size:.8rem}
+.fruit{position:relative;display:block;width:1.9rem;height:1.9rem;border-radius:50%;box-shadow:inset -3px -4px 0 rgba(0,0,0,.15)}
+.fruit::after{content:"";position:absolute;top:-.35rem;left:50%;width:.75rem;height:.45rem;background:#3f8f3a;border-radius:0 100% 0 100%;transform:translateX(-10%) rotate(-20deg)}
+.flyfruit{position:fixed;z-index:60;pointer-events:none;transform:translate(-50%,-50%);margin:0}
+.flyfruit.back{transition:opacity .25s;opacity:0}
+.traynote{font-size:.68rem;color:#6b6b6b;margin:.3rem 0 0;line-height:1.3}

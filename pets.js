@@ -71,7 +71,7 @@
     const clip = name === "fala" ? "canto" : name, next = u.acts[clip]; if (!next) return;
     const prev = u.cur; u.cur = next; u.anim = { name, t0: performance.now(), ms: ms || 0 };
     next.reset(); next.enabled = true; next.setEffectiveWeight(1);
-    const once = name === "pouso" || name === "canto";
+    const once = name === "pouso" || name === "canto" || name === "comer";
     next.setLoop(once ? THREE.LoopOnce : THREE.LoopRepeat, Infinity); next.clampWhenFinished = once;
     next.timeScale = name === "fala" ? 1.6 : 1;
     next.play(); if (prev && prev !== next) next.crossFadeFrom(prev, name === "pouso" ? 0 : .25, false);
@@ -80,7 +80,7 @@
     const u = g && g.userData; if (!u || !u.mixer) return;
     const dt = Math.min(.1, Math.max(0, (now - (u.last || now)) / 1000)); u.last = now;
     const A = u.anim || {};
-    if ((A.name === "pouso" || A.name === "canto") && !u.cur.isRunning()) play(g, "idle");
+    if ((A.name === "pouso" || A.name === "canto" || A.name === "comer") && !u.cur.isRunning()) play(g, "idle");
     else if (A.name === "fala" && now - A.t0 > (A.ms || 1500)) play(g, "idle");
     u.mixer.update(dt);
     if (u.lights) { const f = Math.floor(now / 350); u.lights.forEach((l, i) => { l.visible = (i + f) % 3 !== 0; }); }
@@ -144,6 +144,13 @@
         const iris = new THREE.Mesh(new THREE.SphereGeometry(.028, 16, 12), mat(0x3f6ee0, { roughness: .2 })); iris.position.z = .012; e.add(iris);
         const shine = new THREE.Mesh(new THREE.SphereGeometry(.008, 8, 6), new THREE.MeshBasicMaterial({ color: 0xffffff })); shine.position.set(.01, .012, .036); e.add(shine);
         e.position.set(s * .105, .565, .155); e.rotation.y = s * .55; pin(g, e, "head"); });
+      /* ponto da boca (ponta do bico), preso na cabeça: a comida voa até aqui */
+      g.updateMatrixWorld(true); let beak = null;
+      o.traverse(n => { if (n.isMesh && [].concat(n.material).some(x => x && x.name === "bico")) beak = n; });
+      const mouth = new THREE.Object3D(); mouth.name = "mouth";
+      if (beak) { const bb = new THREE.Box3().setFromObject(beak), c = bb.getCenter(new THREE.Vector3()); mouth.position.set(c.x, c.y - (bb.max.y - bb.min.y) * .15, bb.max.z); }
+      else mouth.position.set(0, .5, .3);
+      pin(g, mouth, "head"); g.userData.mouth = mouth;
       if (opts.eq) dress(g, opts.eq);
       play(g, "idle"); mixer.update(0);
       return g;
@@ -199,5 +206,7 @@
     tr.dispose();
     return cache;
   }
-  window.Pets = { NAMES, make, lights, thumbs, cache, has, preload, dress, play, tick, SONG_MS };
+  /* Posição da boca no mundo (para a comida voar até ela). */
+  function mouth(g) { const m = g && g.userData.mouth; return m ? m.getWorldPosition(new THREE.Vector3()) : null; }
+  window.Pets = { NAMES, make, lights, thumbs, cache, has, preload, dress, play, tick, mouth, SONG_MS };
 })();

@@ -21,6 +21,7 @@ window.CONFIG = {
   pickupPoints: ["Cheirin Bom de Minas", "Padaria Ágape"],
   nightFrom: 18,           // a partir desta hora, missões de luzes valem XP em dobro
   radiusMeters: 120,       // distância máxima do lugar quando a missão tem lat/lng
+  careThresholds: { hunger: 40, love: 30, sleep: 30, joy: 30 },
 
   /* O jogo tem um bicho só: o surucuá, que é o guia e o pet. Espécie real da região.
      review: true = falta a revisão de especialista (o app mostra o aviso). */

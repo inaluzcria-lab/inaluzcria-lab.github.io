@@ -1,6 +1,6 @@
 /* Service worker: guarda os arquivos do próprio site para abrir rápido e funcionar com sinal fraco.
    Só arquivos do mesmo endereço; nada do Firebase ou de outros sites é guardado. */
-const CACHE = "expedicoes-v8";
+const CACHE = "expedicoes-v9";
 const FILES = ["./", "index.html", "styles.css", "config.js", "db.js", "pets.js", "app.js",
   "vendor/three-locar.js", "vendor/qrcode.js", "vendor/leaflet/leaflet.js", "vendor/leaflet/leaflet.css", "manifest.webmanifest",
   "assets/models/surucua.glb", "assets/surucua.png", "assets/audio/canto.mp3", "assets/tag.png", "assets/chocolatissimo.jpg", "assets/icon-192.png", "assets/icon-512.png",

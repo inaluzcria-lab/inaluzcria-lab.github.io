@@ -11,6 +11,13 @@
   const MISS = C.missions, SP = C.species, PETS = Object.keys(SP);
   const byId = id => MISS.find(m => m.id === id);
   const HOUR = 36e5;
+  const CARE_THRESHOLDS = Object.assign({ hunger: 40, love: 30, sleep: 30, joy: 30 }, C.careThresholds || {});
+  const CARE_LEVELS = [
+    { key: "hunger", label: "Fome", phrase: "Tá com fome", icon: "🍓", color: "#c8322f" },
+    { key: "love", label: "Carinho", phrase: "Quer carinho", icon: "💛", color: "#e66fa0" },
+    { key: "sleep", label: "Sono", phrase: "Tá com sono", icon: "🌙", color: "#3b7fc4" },
+    { key: "joy", label: "Alegria", phrase: "Quer brincar", icon: "🎈", color: "#8dc63f" }
+  ];
 
   /* ---------- DOM seguro ---------- */
   const PROPS = new Set(["src", "alt", "href", "type", "value", "id", "role", "title", "name", "placeholder", "maxLength", "checked", "disabled", "target", "rel", "download", "htmlFor", "autocomplete", "inputMode", "colSpan", "width", "height"]);
@@ -1053,6 +1060,7 @@
       for (const [id, p] of Object.entries(S.pets)) if (p.away) { p.away = false; p.love = clamp(p.love + 10); p.seen = Date.now(); back.push(id); }
       S.pets[m.pet].seen = Date.now(); S.pets[S.sel].seen = Date.now();
       save();
+      if (cur === "garden") refreshBars();
       publishMission(m, xp, blob);
     }
     renderBox();
@@ -1136,16 +1144,32 @@
   function renderGarden() {
     stopGarden(); tickPets(); save();
     const v = $("v-garden"), p = S.pets[S.sel];
-    const bars = h("div", { class: "carebars" }, [["Fome", "hunger", "#c8322f"], ["Carinho", "love", "#e66fa0"], ["Sono", "sleep", "#3b7fc4"], ["Alegria", "joy", "#8dc63f"]]
-      .map(([l, k, col]) => h("div", { class: "cb" }, h("span", { text: l }), h("div", null, h("i", { style: { width: p[k] + "%", background: col } })))));
+    const careRows = CARE_LEVELS.map(level => h("div", { class: "cb", "data-care": level.key },
+      h("span", { text: level.label }),
+      h("div", { class: "care-meter", role: "meter", "aria-label": level.label, "aria-valuemin": "0", "aria-valuemax": "100", "aria-valuenow": String(p[level.key]) },
+        h("i", { class: "care-fill", style: { width: p[level.key] + "%", background: level.color } })),
+      h("b", { class: "care-value", text: p[level.key] + "%" })));
+    const carePanel = h("section", { class: "carepanel", "aria-label": "Níveis de cuidado" },
+      h("div", { class: "carepanel-head" }, h("b", { text: "Como estão os níveis?" }),
+        h("button", { class: "care-close", "aria-label": "Fechar níveis", on: { click: () => setCarePanel(false) } }, "×")),
+      h("div", { class: "carelevels" }, careRows));
+    const careNotice = h("button", { class: "care-notice", type: "button", "aria-controls": "garden-care-panel",
+      "aria-expanded": "false", on: { click: () => setCarePanel(!G.careOpen) } });
+    carePanel.id = "garden-care-panel";
     const say = h("div", { class: "bubble gsay", text: mood(S.sel) });
-    const chips = h("div", { class: "petchips" }, Object.keys(S.pets).map(id => h("button", { class: "petchip" + (id === S.sel ? " on" : ""), "aria-label": petName(id), on: { click: () => { S.sel = id; save(); renderGarden(); } } },
-      h("img", { src: T[id], alt: "" }), S.pets[id].hunger < 30 || S.pets[id].away ? h("i") : null)));
+    const chips = h("div", { class: "petchips" }, Object.keys(S.pets).map(id => h("button", { class: "petchip" + (id === S.sel ? " on" : ""),
+      "aria-label": petName(id) + (id === S.sel ? ", mostrar níveis de cuidado" : ""),
+      "aria-expanded": String(id === S.sel && G && G.careOpen),
+      on: { click: () => {
+        if (id === S.sel) setCarePanel(!G.careOpen);
+        else { S.sel = id; save(); renderGarden(); }
+      } } },
+      h("img", { src: T[id], alt: "" }), needs(id) ? h("i") : null)));
     const cv = h("canvas", { class: "gcv" });
     const garden = h("div", { class: "garden" }, cv, h("div", { class: "gtop" }, chips, h("div", { class: "gtools" },
       h("button", { class: "gchip", "aria-label": "Mensagens do pet", on: { click: () => chatSheet(S.sel) } }, "💬", needs(S.sel) ? h("i", { class: "reddot" }) : null),
       h("button", { class: "gchip", on: { click: wardrobe } }, "Vestir"),
-      h("span", { class: "gchip", text: "❤ " + Math.floor(p.bond || 1) }))), say, bars,
+      h("span", { class: "gchip", text: "❤ " + Math.floor(p.bond || 1) }))), careNotice, carePanel, say,
       h("div", { class: "gbar" },
         h("button", { on: { click: openFood } }, icon("cookie"), "Alimentar"),
         h("button", { on: { click: () => care("love") } }, icon("heart"), "Carinho"),
@@ -1157,8 +1181,40 @@
         h("button", { class: "btn", on: { click: () => { show("map"); selectPlace(home); } } }, icon("nav"), "Buscar no mapa")));
     }
     put(v, garden);
-    G = { say, bars };
+    G = { say, careNotice, carePanel, careRows, garden, careOpen: false };
+    refreshCareNotice();
+    G.careTimer = setInterval(() => {
+      if (cur !== "garden") return;
+      tickPets(); save(); refreshBars(); sayG(mood(S.sel));
+    }, 30000);
     startGarden(cv);
+  }
+  function urgentNeeds(p) {
+    return CARE_LEVELS.filter(level => p[level.key] < CARE_THRESHOLDS[level.key])
+      .sort((a, b) => p[a.key] / CARE_THRESHOLDS[a.key] - p[b.key] / CARE_THRESHOLDS[b.key]);
+  }
+  function refreshCareNotice() {
+    if (!G || !G.careNotice) return;
+    const level = urgentNeeds(S.pets[S.sel])[0];
+    G.careNotice.hidden = !level;
+    G.garden.classList.toggle("has-need", !!level);
+    G.careNotice.setAttribute("aria-expanded", String(G.careOpen));
+    G.careNotice.setAttribute("aria-label", level ? level.phrase + ". Mostrar os quatro níveis." : "Mostrar os quatro níveis.");
+    put(G.careNotice, h("span", { class: "care-icon", "aria-hidden": "true", text: level ? level.icon : "" }),
+      h("span", { class: "care-text", text: level ? level.phrase : "" }),
+      h("span", { class: "care-arrow", "aria-hidden": "true", text: "⌄" }));
+    G.carePanel.classList.toggle("open", G.careOpen);
+    G.carePanel.setAttribute("aria-hidden", String(!G.careOpen));
+    G.garden.querySelectorAll(".petchip").forEach((chip, i) => chip.setAttribute("aria-expanded", String(i === Object.keys(S.pets).indexOf(S.sel) && G.careOpen)));
+  }
+  function setCarePanel(open) {
+    if (!G) return;
+    G.careOpen = open;
+    refreshCareNotice();
+    if (!open) {
+      const selectedAvatar = G.garden.querySelector(".petchip.on");
+      (G.careNotice.hidden ? selectedAvatar : G.careNotice).focus();
+    }
   }
   function mood(id) {
     const p = S.pets[id];
@@ -1193,6 +1249,7 @@
       G.anim = { k: "idle", t: performance.now() }; Pets.play(pet, "pouso");
       G.raf = requestAnimationFrame(loop);
       cv.addEventListener("pointerup", () => {
+        if (G.dragging || G.feeding) return; // soltou a comidinha no pássaro: não conta como toque
         const now = performance.now(); G.taps = G.taps.filter(x => now - x < 2000).concat(now);
         if (G.taps.length >= 5) { G.taps = []; G.anim = { k: "tonto", t: now }; sayG("Ei, tô tonto!"); } else { sing(pet); sayG("♪ Escuta o meu canto! ♪"); }
       });
@@ -1205,14 +1262,14 @@
     if (id === "tamandua") return hr < 17 ? "De dia eu fico descansando num galho perto de " + home.partner + "." : "De noite eu saio procurando formigas perto de " + home.partner + "!";
     return hr < 11 ? "De manhã eu fico na mata, procurando comida. Hoje tô perto de " + home.partner + " 🌿" : hr < 18 ? "À tarde eu fico na sombra perto de " + home.partner + "." : "À noite eu fico vendo o pisca-pisca perto de " + home.partner + " ✨";
   }
-  function needs(id) { const p = S.pets[id]; return p && (p.away || p.hunger < 40 || Date.now() - p.seen > 24 * HOUR); }
+  function needs(id) { const p = S.pets[id]; return p && (p.away || urgentNeeds(p).length > 0 || Date.now() - p.seen > 24 * HOUR); }
   function chatSheet(id) {
     const p = S.pets[id], home = homeOf(id), msgs = [];
     const t = new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
     if (p.away) msgs.push("Saí pra passear! Tô perto de " + home.partner + ". Me busca lá?");
     else msgs.push(routine(id));
     if (Date.now() - p.seen > 24 * HOUR) msgs.push("Ontem você não veio… fiquei te esperando 😢");
-    if (p.hunger < 40) msgs.push("Tô com fome! Traz " + C.foods[SP[id].fav].label.toLowerCase() + "?");
+    if (p.hunger < CARE_THRESHOLDS.hunger) msgs.push("Tô com fome! Traz " + C.foods[SP[id].fav].label.toLowerCase() + "?");
     const thread = h("div", { class: "wa" }, msgs.slice(0, 3).map(m => h("div", { class: "wamsg", text: m })));
     const reply = (txt, ans, bond, after) => h("button", { class: "qr", on: { click: () => {
       thread.append(h("div", { class: "wamsg me", text: txt }), h("div", { class: "wamsg", text: ans }));
@@ -1237,6 +1294,7 @@
   function stopGarden() {
     if (!G) return;
     if (G.raf) cancelAnimationFrame(G.raf);
+    if (G.careTimer) clearInterval(G.careTimer);
     if (G.r) { G.r.dispose(); G.r.forceContextLoss && G.r.forceContextLoss(); }
     G = null;
   }
@@ -1254,28 +1312,84 @@
     p.seen = Date.now(); save(); anim("feliz"); refreshBars();
   }
   function refreshBars() {
-    if (!G || !G.bars) return; const p = S.pets[S.sel];
-    ["hunger", "love", "sleep", "joy"].forEach((k, i) => { G.bars.children[i].querySelector("i").style.width = p[k] + "%"; });
+    if (!G || !G.careRows) return;
+    const p = S.pets[S.sel];
+    CARE_LEVELS.forEach(level => {
+      const row = G.careRows.find(el => el.dataset.care === level.key);
+      row.querySelector(".care-fill").style.width = p[level.key] + "%";
+      row.querySelector(".care-meter").setAttribute("aria-valuenow", String(p[level.key]));
+      row.querySelector(".care-value").textContent = p[level.key] + "%";
+    });
+    refreshCareNotice();
   }
+  /* Alimentar (estilo Talking Tom): a bandeja de comidinhas abre no jardim. Toque numa comidinha
+     (ou arraste até o surucuá) e ela voa até a boca dele; ele bica e come. Só conta quando chega na boca. */
   function openFood() {
     const p = S.pets[S.sel]; if (p.away) return toast("Ele foi passear. Busque no mapa!");
-    const fav = SP[S.sel].fav;
-    openSheet(h("h2", { text: "Mochila de comidinhas" }),
-      h("p", { class: "demo", style: { textAlign: "left" }, text: "Comida só se ganha nas missões, nunca com dinheiro. É comida do pet virtual: não alimente bichos de verdade." }),
-      Object.entries(C.foods).map(([k, f]) => {
-        const n = S.food[k] || 0, from = MISS.filter(m => m.food === k).map(m => m.partner).join(", ");
-        return h("button", { class: "opt", disabled: !n, style: { opacity: n ? 1 : .55 }, on: { click: () => feed(k) } },
-          h("span", { class: "fooddot", style: { background: f.color } }),
-          h("span", { style: { flex: "1" } }, h("b", { text: f.label + (k === fav ? " ★ favorita" : "") }), h("br"), h("small", { text: "Ganha em: " + (from || "Caixinha") })),
-          h("b", { text: "×" + n }));
-      }),
-      h("button", { class: "btn alt", on: { click: () => { closeSheet(); show("map"); } } }, icon("map"), "Ver onde conseguir"));
+    if (!G || !G.garden) return;
+    if (G.tray) { G.tray.remove(); G.tray = null; return; }
+    const fav = SP[S.sel].fav, any = Object.keys(C.foods).some(k => S.food[k] > 0);
+    const items = Object.entries(C.foods).map(([k, f]) => {
+      const n = S.food[k] || 0;
+      const it = h("button", { class: "fooditem" + (n ? "" : " off"), disabled: !n, "aria-label": f.label + ", " + n + (k === fav ? ", favorita" : "") },
+        h("span", { class: "fruit", style: { background: "radial-gradient(circle at 35% 30%, #fff8 0 12%, " + f.color + " 13% 100%)" } }),
+        h("small", { text: f.label }), h("b", { class: "foodn", text: "×" + n }), k === fav ? h("i", { class: "favstar", text: "★" }) : null);
+      if (n) it.addEventListener("pointerdown", e => grabFood(e, k, it));
+      return it;
+    });
+    G.tray = h("div", { class: "foodtray", role: "dialog", "aria-label": "Comidinhas" },
+      h("div", { class: "traytop" }, h("b", { text: any ? "Toque ou arraste até o surucuá" : "A mochila está vazia" }),
+        h("button", { class: "care-close", "aria-label": "Fechar comidinhas", on: { click: () => { G.tray.remove(); G.tray = null; } } }, "×")),
+      h("div", { class: "trayrow" }, items),
+      h("p", { class: "traynote" }, "Só se ganha nas missões, nunca com dinheiro. Não alimente bichos de verdade. ",
+        h("button", { class: "linkish", on: { click: () => { G.tray.remove(); G.tray = null; show("map"); } } }, "Onde conseguir")));
+    G.garden.append(G.tray);
+  }
+  function mouthXY() {
+    if (!G || !G.pet || !G.cam || !G.r) return null;
+    const v = Pets.mouth(G.pet); if (!v) return null;
+    v.project(G.cam); const rc = G.r.domElement.getBoundingClientRect();
+    return { x: rc.left + (v.x + 1) / 2 * rc.width, y: rc.top + (1 - v.y) / 2 * rc.height };
+  }
+  function fruitEl(k, x, y) {
+    const f = h("span", { class: "fruit flyfruit", "aria-hidden": "true", style: { background: "radial-gradient(circle at 35% 30%, #fff8 0 12%, " + C.foods[k].color + " 13% 100%)" } });
+    f.style.left = x + "px"; f.style.top = y + "px"; document.body.append(f); return f;
+  }
+  /* Segura a comidinha: arrastar leva junto com o dedo; soltar perto da boca (ou só tocar) faz ela voar até a boca. */
+  function grabFood(e, k, it) {
+    if (G.feeding || !(S.food[k] > 0)) return;
+    e.preventDefault();
+    const r0 = it.querySelector(".fruit").getBoundingClientRect(), sx = r0.left + r0.width / 2, sy = r0.top + r0.height / 2;
+    const fr = fruitEl(k, sx, sy); let moved = false, x = sx, y = sy; G.dragging = true;
+    const move = ev => { x = ev.clientX; y = ev.clientY; if (Math.hypot(x - sx, y - sy) > 10) moved = true; if (moved) { fr.style.left = x + "px"; fr.style.top = y + "px"; } };
+    const up = () => {
+      removeEventListener("pointermove", move); removeEventListener("pointerup", up); removeEventListener("pointercancel", up);
+      setTimeout(() => { if (G) G.dragging = false; }, 0);
+      const m = mouthXY();
+      if (!moved || (m && y < (G.tray ? G.tray.getBoundingClientRect().top : innerHeight) - 10)) flyToMouth(k, fr, moved ? x : sx, moved ? y : sy);
+      else { fr.classList.add("back"); setTimeout(() => fr.remove(), 250); }
+    };
+    addEventListener("pointermove", move); addEventListener("pointerup", up); addEventListener("pointercancel", up);
+  }
+  function flyToMouth(k, fr, x0, y0) {
+    G.feeding = true; const t0 = performance.now(), T = 750; let pecked = false;
+    const step = now => {
+      const m = mouthXY(); if (!m || !G || !G.pet) { fr.remove(); if (G) G.feeding = false; return; }
+      const q = Math.min(1, (now - t0) / T), e = 1 - (1 - q) ** 2;
+      const x = x0 + (m.x - x0) * e, y = y0 + (m.y - y0) * e - Math.sin(q * Math.PI) * 90;
+      fr.style.left = x + "px"; fr.style.top = y + "px"; fr.style.transform = "translate(-50%,-50%) scale(" + (1 - .45 * q) + ")";
+      if (!pecked && q > .55) { pecked = true; Pets.play(G.pet, "comer"); }
+      if (Math.hypot(x - m.x, y - m.y) < 8 || q >= 1) { fr.remove(); G.feeding = false; feed(k); return; }
+      requestAnimationFrame(step);
+    };
+    requestAnimationFrame(step);
   }
   function feed(k) {
     const p = S.pets[S.sel]; if (!(S.food[k] > 0)) return;
     S.food[k]--; const fav = SP[S.sel].fav === k;
     p.hunger = clamp(p.hunger + (fav ? 45 : 30)); p.joy = clamp(p.joy + 5); p.seen = Date.now(); S.daily.fed++;
-    save(); closeSheet(); anim("feliz"); sayG(fav ? "Minha favorita! Obrigado!" : "Hum, gostoso!"); refreshBars();
+    save(); sayG(fav ? "Minha favorita! Nham, obrigado!" : "Nham, gostoso!"); refreshBars();
+    if (G && G.tray) { const open = G.tray; G.tray = null; open.remove(); openFood(); }
   }
   /* Repete a voz da pessoa mais aguda (estilo Talking Tom). O áudio não sai do aparelho. */
   let rec = null;
