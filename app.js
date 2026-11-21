@@ -5,6 +5,8 @@
    ========================================================= */
 (function () {
   "use strict";
+  /* Contra clickjacking: no GitHub Pages não dá para mandar o cabeçalho frame-ancestors. */
+  if (window.top !== window.self) { document.documentElement.textContent = "Abra o jogo pelo endereço oficial: " + location.origin; try { window.top.location = location.href; } catch (_) {} return; }
   const C = window.CONFIG, $ = id => document.getElementById(id);
   const MISS = C.missions, SP = C.species, PETS = Object.keys(SP);
   const byId = id => MISS.find(m => m.id === id);
@@ -51,6 +53,8 @@
 
   /* ---------- utilidades ---------- */
   const dayKey = (d = new Date()) => d.toLocaleDateString("sv-SE");
+  const pinNo = m => MISS.filter(x => !x.anywhere).indexOf(m) + 1;
+  const accFor = m => (m.accNight && isNight() ? m.accNight : m.acc);
   const isNight = () => { const hr = new Date().getHours(); return hr >= C.nightFrom || hr < 5; };
   const clamp = v => Math.max(0, Math.min(100, Math.round(v)));
   const petName = id => (SP[id] ? SP[id].name : id);
@@ -200,8 +204,8 @@
     const n = Date.now(), c = [-22.4565, -43.4685], route = [];
     for (let i = 0; i <= 24; i++) { const t = i / 24; route.push(+(c[0] + .004 * Math.sin(t * 3.2) - .002 * t).toFixed(4), +(c[1] + .009 * t + .0015 * Math.sin(t * 9)).toFixed(4)); }
     return [{ id: "ex1", kind: "mission", nick: "Lia", missionId: "cheirin", pet: "surucua", pets: ["surucua"], xp: 80, places: 3, km: 1.8, claps: 42, createdAt: n - 2 * HOUR, photo: "assets/chocolatissimo.jpg", example: true },
-            { id: "ex2", kind: "expedition", nick: "Seu Jorge", title: "Rota das luzes de Natal", missions: ["pinheiros", "sesc", "cheirin"], pet: "surucua", pets: ["surucua"], xp: 230, km: 2.1, mins: 48, places: 3, claps: 28, createdAt: n - 5 * HOUR, route, example: true },
-            { id: "ex3", kind: "mission", nick: "Bia", missionId: "sesc", pet: "surucua", pets: ["surucua"], xp: 200, places: 1, claps: 57, createdAt: n - 26 * HOUR, club: "ESCOLA", clubName: "Escola Municipal", example: true }];
+            { id: "ex2", kind: "expedition", nick: "Seu Jorge", title: "Rota das luzes de Natal", missions: ["pinheiros", "agape", "cheirin"], pet: "surucua", pets: ["surucua"], xp: 230, km: 2.1, mins: 48, places: 3, claps: 28, createdAt: n - 5 * HOUR, route, example: true },
+            { id: "ex3", kind: "mission", nick: "Bia", missionId: "pinheiros", pet: "surucua", pets: ["surucua"], xp: 100, places: 1, claps: 57, createdAt: n - 26 * HOUR, club: "ESCOLA", clubName: "Escola Municipal", example: true }];
   }
   function postCard(p) {
     const m = p.missionId ? byId(p.missionId) : null;
@@ -506,16 +510,16 @@
     if (mapMode === "lista") put(v, top, h("div", { class: "wrap" }, MISS.map((m, i) => placeCard(m, i))), lower);
     else if (window.L && tilesOk !== false) {
       const box = h("div", { class: "lmap" });
-      put(v, top, box, h("div", { class: "wrap", style: { paddingTop: ".8rem" } }, placeCard(sel, MISS.indexOf(sel))), lower);
+      put(v, top, box, h("div", { class: "wrap", style: { paddingTop: ".8rem" } }, mapCards()), lower);
       initMap(box);
     }
     else {
       const cv = h("canvas", { width: 700, height: 700 });
       const box = h("div", { class: "mapbox" }, cv,
-        MISS.map((m, i) => h("button", { class: "pin" + (S.done[m.id] === today ? " done" : ""), style: { left: m.mapX * 100 + "%", top: m.mapY * 100 + "%" }, "aria-label": m.name, on: { click: () => selectPlace(m) } },
-          h("span", { text: m.partner.replace("Prefeitura de Miguel Pereira", "Pinheiros").replace(" Bom de Minas", "") }), h("i", null, h("b", { text: String(i + 1) })))),
+        MISS.map((m, i) => m.anywhere ? null : h("button", { class: "pin" + (S.done[m.id] === today ? " done" : ""), style: { left: m.mapX * 100 + "%", top: m.mapY * 100 + "%" }, "aria-label": m.name, on: { click: () => selectPlace(m) } },
+          h("span", { text: m.partner.replace("Prefeitura de Miguel Pereira", "Pinheiros").replace(" Bom de Minas", "") }), h("i", null, h("b", { text: String(pinNo(m)) })))),
         C.flash ? h("div", { class: "pin flashp", style: { left: C.flash.mapX * 100 + "%", top: (C.flash.mapY * 100 + 6) + "%" } }, h("span", { text: C.flash.name }), h("i", null, h("b", { text: "★" }))) : null);
-      put(v, top, box, h("div", { class: "wrap", style: { paddingTop: ".8rem" } }, placeCard(sel, MISS.indexOf(sel))), lower);
+      put(v, top, box, h("div", { class: "wrap", style: { paddingTop: ".8rem" } }, mapCards()), lower);
       drawMap(cv);
       loadPlaces().then(list => { if (!C.mapBounds) return; const B = C.mapBounds;
         list.forEach(pl => { const x = (pl.lng - B.west) / (B.east - B.west), y = (B.north - pl.lat) / (B.north - B.south); if (x < 0 || x > 1 || y < 0 || y > 1) return;
@@ -523,16 +527,24 @@
     }
     loadPlaces().then(list => put(placesBox, list.length ? list.slice(0, 12).map(placeRow) : h("p", { class: "demo", text: "Ninguém marcou lugares ainda. Seja o primeiro!" })));
   }
+  /* Embaixo do mapa: as missões que valem na cidade toda + o lugar tocado no mapa. */
+  function mapCards() {
+    return [MISS.filter(m => m.anywhere).map(m => placeCard(m, MISS.indexOf(m))), sel && !sel.anywhere ? placeCard(sel, MISS.indexOf(sel)) : null];
+  }
   let lmap = null;
   function pinEl(label, num, cls) { return h("div", { class: "pin " + (cls || "") }, h("span", { text: label }), h("i", null, h("b", { text: num }))); }
   function initMap(el) {
     if (lmap) { lmap.remove(); lmap = null; }
-    lmap = L.map(el, { zoomControl: true }).setView(sel && sel.lat != null ? [sel.lat, sel.lng] : C.map.center, C.map.zoom);
+    lmap = L.map(el, { zoomControl: true });
+    const all = MISS.filter(m => m.lat != null).map(m => [m.lat, m.lng]).concat(C.flash && C.flash.lat != null ? [[C.flash.lat, C.flash.lng]] : []);
+    if (sel && sel.lat != null) lmap.setView([sel.lat, sel.lng], C.map.zoom);
+    else if (all.length > 1) lmap.fitBounds(all, { padding: [40, 40], maxZoom: C.map.zoom });
+    else lmap.setView(C.map.center, C.map.zoom);
     L.tileLayer(C.map.tiles, { maxZoom: C.map.maxZoom, attribution: C.map.attribution, referrerPolicy: "strict-origin-when-cross-origin", crossOrigin: false }).addTo(lmap);
     checkTiles();
     const today = dayKey();
     const mk = (lat, lng, node, click) => L.marker([lat, lng], { icon: L.divIcon({ html: node, className: "lpin", iconSize: [0, 0] }) }).addTo(lmap).on("click", click);
-    MISS.forEach((m, i) => { if (m.lat != null) mk(m.lat, m.lng, pinEl(m.partner.replace("Prefeitura de Miguel Pereira", "Pinheiros").replace(" Bom de Minas", ""), S.done[m.id] === today ? "✓" : String(i + 1), S.done[m.id] === today ? "done" : ""), () => selectPlace(m)); });
+    MISS.forEach((m, i) => { if (m.lat != null && !m.anywhere) mk(m.lat, m.lng, pinEl(m.partner.replace("Prefeitura de Miguel Pereira", "Pinheiros").replace(" Bom de Minas", ""), S.done[m.id] === today ? "✓" : String(pinNo(m)), S.done[m.id] === today ? "done" : ""), () => selectPlace(m)); });
     if (C.flash && C.flash.lat != null) mk(C.flash.lat, C.flash.lng, pinEl(C.flash.name, "★", "flashp"), () => toast(C.flash.text));
     if (S.exp && S.exp.pts.length > 1) L.polyline(S.exp.pts, { color: "#f39a2b", weight: 6 }).addTo(lmap);
     loadPlaces().then(list => { if (!lmap) return; list.forEach(pl => mk(pl.lat, pl.lng, pinEl(pl.name, "•", confirmed(pl) ? "" : "pend"), () => placeDetail(pl))); });
@@ -562,9 +574,18 @@
   }
   function placeCard(m, i) {
     const done = S.done[m.id] === dayKey(), xp = m.xp * (m.lights && isNight() ? 2 : 1);
-    const maps = "https://www.google.com/maps/search/?api=1&query=" + encodeURIComponent((m.lat != null ? m.lat + "," + m.lng : m.partner + ", " + C.city + " RJ"));
+    if (m.anywhere) {
+      const prize = C.accessories[accFor(m)];
+      return h("div", { class: "card" },
+        h("div", { class: "place" + (done ? " done" : "") }, h("span", { class: "num", text: done ? "✓" : "🎄" }),
+          h("div", { class: "t" }, h("b", { text: m.name + " pela cidade" }), h("br"),
+            h("small", { text: "Estão espalhados pela cidade toda: vale qualquer um. +" + xp + " XP" + (done ? " · feita hoje" : prize ? " · prêmio: " + prize.label : "") }))),
+        m.accNight ? h("p", { class: "demo", style: { textAlign: "left", margin: ".4rem 0 0" }, text: isNight() ? "Agora é noite: o prêmio é o " + C.accessories[m.accNight].label.toLowerCase() + "." : "Depois das " + C.nightFrom + "h o prêmio vira o " + C.accessories[m.accNight].label.toLowerCase() + "." }) : null,
+        h("button", { class: "btn", style: { marginTop: ".6rem" }, on: { click: () => openCam(m) } }, icon("cam"), "Achei um pinheiro"));
+    }
+    const maps = "https://www.google.com/maps/search/?api=1&query=" + encodeURIComponent(m.address || (m.lat != null ? m.lat + "," + m.lng : m.partner + ", " + C.city + " RJ"));
     return h("div", { class: "card" },
-      h("div", { class: "place" + (done ? " done" : "") }, h("span", { class: "num", text: done ? "✓" : String(i + 1) }),
+      h("div", { class: "place" + (done ? " done" : "") }, h("span", { class: "num", text: done ? "✓" : String(pinNo(m)) }),
         h("div", { class: "t" }, h("b", { text: m.partner }), h("br"), h("small", { text: m.task + " · +" + xp + " XP" + (done ? " · feita hoje" : "") }))),
       h("div", { class: "row", style: { marginTop: ".6rem" } },
         h("a", { class: "btn alt", href: maps, target: "_blank", rel: "noopener noreferrer" }, icon("nav"), "Como chegar"),
@@ -1019,7 +1040,7 @@
     lastPhoto = blob ? { blob, url: URL.createObjectURL(blob), m } : null;
     const already = S.done[m.id] === dayKey();
     let xp = 0, isNew = false;
-    const back = [];
+    const back = [], acc = accFor(m);
     if (!already) {
       xp = m.xp * (m.lights && isNight() ? 2 : 1);
       if (S.sel === "sabia" && new Date().getHours() < 9) xp += 10;
@@ -1028,7 +1049,7 @@
       S.food[m.food] = (S.food[m.food] || 0) + 2;
       if (S.week.id !== weekId()) S.week = { id: weekId(), places: [] };
       if (!m.place && !S.week.places.includes(m.id)) S.week.places.push(m.id);
-      if (m.acc && C.accessories[m.acc] && !S.acc.includes(m.acc)) { S.acc.push(m.acc); S.eq[C.accessories[m.acc].slot] = m.acc; isNew = true; makeThumbs(); }
+      if (acc && C.accessories[acc] && !S.acc.includes(acc)) { S.acc.push(acc); S.eq[C.accessories[acc].slot] = acc; isNew = true; makeThumbs(); }
       for (const [id, p] of Object.entries(S.pets)) if (p.away) { p.away = false; p.love = clamp(p.love + 10); p.seen = Date.now(); back.push(id); }
       S.pets[m.pet].seen = Date.now(); S.pets[S.sel].seen = Date.now();
       save();
@@ -1040,7 +1061,7 @@
       lastPhoto ? h("img", { class: "storyprev", src: lastPhoto.url, alt: "Sua foto" }) : h("img", { class: "pet", src: T[m.pet], alt: "" }),
       h("div", { class: "xp", text: already ? "Foto salva" : "+" + xp + " XP" }),
       already ? h("p", { text: "Esta missão já valeu hoje. Volte amanhã para ganhar de novo." }) : null,
-      h("p", { style: { margin: ".2rem 0", fontWeight: "700" }, text: isNew ? "Novo acessório: " + C.accessories[m.acc].label + "!" : "O surucuá está com você" }),
+      h("p", { style: { margin: ".2rem 0", fontWeight: "700" }, text: isNew ? "Novo acessório: " + C.accessories[acc].label + "!" : "O surucuá está com você" }),
       h("p", { class: "realtag", text: "Espécie real da Serra ✓" + (sp.review ? " · lista em revisão" : "") }),
       back.length ? h("p", { text: back.map(petName).join(", ") + " voltou do passeio!" }) : null,
       m.gift && !already ? h("div", null, h("span", { class: "coupon", text: "Presente do " + m.partner + ": " + m.gift }), h("p", { class: "demo", text: "Mostre esta tela no balcão. Não precisa comprar nada para ganhar a missão." })) : null,
@@ -1350,10 +1371,10 @@
         h("div", { class: "card who", style: { padding: ".6rem .8rem" } }, h("img", { src: T.surucua, alt: "", style: { width: "4rem" } }),
           h("div", { style: { flex: "1" } }, h("b", { text: SP.surucua.name }), h("small", null, h("i", { text: SP.surucua.sci }))),
           h("button", { class: "pillbtn", style: { flex: "none", padding: "0 .8rem" }, on: { click: () => ficha("surucua") } }, "Ficha")),
-        h("div", { class: "accgrid" }, Object.entries(C.accessories).map(([k, a]) => { const has = S.acc.includes(k), from = MISS.find(m => m.acc === k);
+        h("div", { class: "accgrid" }, Object.entries(C.accessories).map(([k, a]) => { const has = S.acc.includes(k), from = MISS.find(m => m.acc === k || m.accNight === k);
           return h("button", { class: "acccell" + (has ? "" : " off") + (Object.values(S.eq).includes(k) ? " on" : ""), on: { click: wardrobe } },
             h("span", { class: "accico", text: { gorro: "🎅", laco: "🎀", cachecol: "🧣", pisca: "✨", oculos: "⭐", gorro_dourado: "👑" }[k] || "🎁" }),
-            h("b", { text: a.label }), h("small", { text: has ? C.slots[a.slot] : "Ganhe em " + (from ? from.partner : "Caixinha de Natal") })); })),
+            h("b", { text: a.label }), h("small", { text: has ? C.slots[a.slot] : "Ganhe em " + (!from ? "Caixinha de Natal" : from.anywhere ? (from.accNight === k ? "pinheiros à noite" : "pinheiros de dia") : from.partner) })); })),
         h("div", { class: "sec" }, "Conquistas", h("small", { text: ach.filter(a => a[2]).length + " de " + ach.length })),
         h("div", { class: "grid3" }, ach.map(([l, src, on]) => h("div", { class: "ach" + (on ? "" : " off") }, h("img", { src, alt: "" }), l))),
         h("div", { class: "sec" }, "Ajustes"),

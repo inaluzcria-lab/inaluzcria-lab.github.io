@@ -6,7 +6,7 @@
 window.CONFIG = {
   /* Endereço público do jogo (usado no QR e no convite dos Stories).
      Ex.: "https://seuusuario.github.io/expedicoes/". Vazio = endereço atual. */
-  siteUrl: "",
+  siteUrl: "https://inaluzcria-lab.github.io/",
 
   /* Configuração do app Web do Firebase (veja o README).
      null = modo demonstração: tudo fica só neste aparelho. */
@@ -61,31 +61,32 @@ window.CONFIG = {
   },
 
   /* Missões. mapX/mapY = posição no mapa ilustrado (0 a 1).
-     lat/lng = posição no mapa real. ATENÇÃO: as coordenadas abaixo são de EXEMPLO.
-     Confira cada uma no mapa e troque coordsOk para true: só então a missão exige estar perto do lugar.
+     lat/lng = posição no mapa real, tirada do endereço (OpenStreetMap acha a rua, não o número).
+     Confira cada pino no mapa e troque coordsOk para true: só então a missão exige estar perto do lugar.
+     anywhere: true = a missão vale em qualquer lugar da cidade (sem pino no mapa), como os pinheiros.
+     accNight = acessório que a missão dá depois das 18h (nightFrom) no lugar de "acc".
      tag: true = a câmera abre procurando a tag da mandala no balcão (o surucuá pousa nela).
      A missão NUNCA exige compra. "gift" é presente certo da loja, nunca sorteado. */
   missions: [
     { id: "pinheiros", name: "Pinheiros iluminados", partner: "Prefeitura de Miguel Pereira",
-      task: "Foto com um pinheiro de Natal com pisca-pisca", xp: 50, pet: "surucua", acc: "gorro", food: "folhinhas",
-      lights: true, scene: "pinheiro", mapX: .50, mapY: .44, lat: -22.4541, lng: -43.4683, coordsOk: false,
-      tip: "Achou um pinheiro com pisca-pisca? Deixa as luzes atrás de você e me chama pra foto. Cuidado ao atravessar a rua, viu?" },
-    { id: "sesc", name: "Luzes do Sesc", partner: "Sesc",
-      task: "Foto com a instalação de luzes", xp: 100, pet: "surucua", acc: "pisca", food: "insetinhos",
-      lights: true, scene: "luzes", mapX: .24, mapY: .28, lat: -22.4528, lng: -43.4701, coordsOk: false,
-      tip: "Que luzes lindas! Fica um pouco longe pra caber tudo na foto. Se tiver fila, espera a vez com calma." },
+      task: "Foto com qualquer pinheiro de Natal iluminado da cidade", xp: 50, pet: "surucua", acc: "gorro", accNight: "pisca", food: "folhinhas",
+      anywhere: true, lights: true, scene: "pinheiro",
+      tip: "Achou um pinheiro com pisca-pisca? Deixa as luzes atrás de você e me chama pra foto. Depois das 18h o prêmio é o pisca-pisca nas asas! Cuidado ao atravessar a rua, viu?" },
     { id: "cheirin", name: "Chocolatíssimo", partner: "Cheirin Bom de Minas",
       task: "Foto com o Chocolatíssimo da vitrine (não precisa comprar)", xp: 80, pet: "surucua", acc: "cachecol", food: "formiguinhas",
-      tag: true, lights: false, scene: "choco", mapX: .66, mapY: .62, lat: -22.455, lng: -43.4676, coordsOk: false,
+      tag: true, lights: false, scene: "choco", mapX: .66, mapY: .62, lat: -22.4569, lng: -43.4682, coordsOk: false,
+      address: "Av. Presidente John Kennedy, 48 - Centro, Miguel Pereira - RJ",
       gift: "10% no Chocolatíssimo",
       tip: "Chegamos no Cheirin, onde fica o cachecol listrado! Aponta a câmera pro Chocolatíssimo da vitrine. Não precisa comprar nada pra ganhar." },
     { id: "agape", name: "Vitrine da Ágape", partner: "Padaria Ágape",
       task: "Foto com a vitrine de Natal", xp: 60, pet: "surucua", acc: "laco", food: "frutinhas",
-      tag: true, lights: false, scene: "padaria", mapX: .36, mapY: .70, lat: -22.4556, lng: -43.4694, coordsOk: false,
+      tag: true, lights: false, scene: "padaria", mapX: .36, mapY: .70, lat: -22.4545, lng: -43.4710, coordsOk: false,
+      address: "R. Francisco Alves, 57 - Lj 3 - Centro, Miguel Pereira - RJ, 26900-000",
       tip: "Cheirinho de pão, né? Enquadra a vitrine de Natal e me deixa aparecer do lado." },
     { id: "salgrosso", name: "Fachada do Sal Grosso", partner: "Sal Grosso Espetaria",
       task: "Foto com a fachada ou a placa da espetaria", xp: 70, pet: "surucua", acc: "oculos", food: "sementes",
-      tag: true, lights: false, scene: "espeto", mapX: .84, mapY: .46, lat: -22.4535, lng: -43.4664, coordsOk: false,
+      tag: true, lights: false, scene: "espeto", mapX: .84, mapY: .46, lat: -22.4795, lng: -43.4971, coordsOk: false,
+      address: "Tv. Osmar Chaves, 88 - Gov. Portela, Miguel Pereira - RJ, 26900-000",
       tip: "Chegamos no Sal Grosso! Enquadra a placa e me deixa aparecer do lado." }
   ],
 
@@ -108,7 +109,8 @@ window.CONFIG = {
   routePrivacyMeters: 150,
 
   /* Evento relâmpago (exemplo de horário). */
-  flash: { name: "Lago do Javary", text: "Hoje, 19h às 20h: fotos no lago valem XP em dobro", mapX: .60, mapY: .13, lat: -22.4522, lng: -43.4712 },
+  flash: { name: "Lago do Javary", text: "Hoje, 19h às 20h: fotos no lago valem XP em dobro", mapX: .60, mapY: .13, lat: -22.4715, lng: -43.4929,
+           address: "Lago de Javary, Governador Portela, Miguel Pereira - RJ" },
 
   /* Missões do dia do Passe de Natal (trilha grátis). */
   daily: [

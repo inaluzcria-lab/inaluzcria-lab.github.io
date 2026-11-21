@@ -10,6 +10,23 @@ Sem Firebase, tudo fica salvo só no aparelho. É o jeito mais rápido de testar
 2. Para testar no computador: `python3 -m http.server 8000` dentro da pasta e abra `http://localhost:8000`.
 3. Edite `config.js` para trocar missões, lojas, espécies, dicas e prêmios.
 
+## Publicar no GitHub Pages
+
+O repositório `inaluzcria-lab/inaluzcria-lab.github.io` publica esta pasta na raiz: **https://inaluzcria-lab.github.io/**.
+
+1. Envie as mudanças: `git add -A`, `git commit -m "GitHub Pages"`, `git push`.
+2. No GitHub: **Settings › Pages › Build and deployment** › Source **Deploy from a branch** › Branch **main** e pasta **/ (root)** › Save.
+3. Marque **Enforce HTTPS** (câmera, GPS e microfone só funcionam em https).
+4. Em 1 a 2 minutos o site está no ar. Abra no celular e teste.
+
+O que já está ajustado para o Pages:
+
+- `.nojekyll`: o GitHub publica os arquivos como estão, sem passar pelo Jekyll.
+- `404.html`: endereço errado volta para o jogo.
+- `config.js` › `siteUrl` aponta para o endereço do Pages, então os QR codes e os convites levam para o site certo. Se usar domínio próprio, troque aqui e crie o arquivo `CNAME` com o domínio.
+- O GitHub Pages não deixa configurar cabeçalhos de segurança. A política de segurança (CSP) e a de referrer já estão no `index.html` como `<meta>`. A proteção contra o jogo ser aberto dentro de outro site (frame-ancestors) não funciona por `<meta>`, então o `app.js` faz essa checagem. `.htaccess` (Hostinger) e `firebase.json` (Firebase Hosting) ficam na pasta só para quando o jogo mudar de hospedagem; o Pages ignora os dois.
+- O mapa usa os tiles do OpenStreetMap, que pedem o cabeçalho Referer: o `index.html` já manda `strict-origin-when-cross-origin`.
+
 ## O que funciona (todas as telas do mockup aprovado)
 
 | Tela | O que tem |
