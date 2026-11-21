@@ -50,17 +50,21 @@ O que já está ajustado para o Pages:
 
 **Um bicho só: o surucuá.** É o guia (dicas e voz na câmera) e o pet. Cada missão dá um acessório de Natal (gorro, laço, cachecol, pisca-pisca nas asas, óculos de estrela); a Caixinha dá o gorro dourado. O almanaque virou o Guarda-roupa.
 
-**Modelo e animações.** O modelo é o seu `surucua.blend`, em `assets/models/surucua.glb`. A textura `SurucuaUV.png` não encaixa nas UVs do arquivo (a `UVMap` está vazia e a `map1` é o layout antigo do tucano), e o arquivo não tem o esqueleto nem animações salvas. Por isso as cores seguem o concept (capuz e costas azul-escuro, barriga amarela grande, bico claro, olho azul com anel amarelo) e as animações são feitas em `pets.js`, deformando o próprio modelo:
+**Modelo e animações.** O modelo é o seu surucuá, agora com esqueleto, a sua textura e 4 animações feitas no Blender:
 
-| Animação | Quando | Como |
+- `assets/models/surucua.blend`: arquivo editável (textura em `assets/models/SurucuaUV.png`, caminho relativo).
+- `assets/models/surucua.glb`: o que o jogo carrega (textura embutida).
+
+A UV foi refeita para usar a `SurucuaUV.png`: costas e capuz azul-marinho, barriga amarela, penas nas asas e listras nas pernas. Para a passagem suave do azul para o amarelo, foi pintada uma faixa em degradê no canto inferior direito da textura, que era azul-marinho liso.
+
+| Animação (clipe no .glb) | Quando | O que faz |
 | --- | --- | --- |
-| Pouso | Primeira aparição: na tag, na câmera e ao abrir o jardim | Desce batendo as asas e fecha as asas ao pousar |
-| Idle | Parado | Asas fechadas, respiração no peito, vira devagar |
-| Canto | Toque no surucuá | Toca a sua gravação (`assets/audio/canto.mp3`) e o peito infla no ritmo do som, só o peito |
-| Voo | Modo Procurar (corrida) | Bate as asas e inclina para frente |
-| Fala | "Falar" no jardim | Peito acompanha a sua voz repetida |
+| `pouso` | Primeira aparição: na tag, na câmera e ao abrir o jardim | Desce batendo as asas e fecha as asas ao pousar |
+| `idle` | Parado (loop) | Asas fechadas, respira, olha em volta e mexe o rabo |
+| `canto` | Toque no surucuá | Só o peito (osso `chest`) infla, no ritmo da gravação `assets/audio/canto.mp3` |
+| `voo` | Modo Procurar (corrida) | Bate as asas com o corpo inclinado |
 
-Se você mandar o `.blend` com a UV da textura e o esqueleto com as ações (pouso, idle, canto, voo), eu troco as animações do código pelas suas.
+Ossos: `root`, `body`, `chest`, `head`, `tail`, `wing.L`, `wingtip.L`, `wing.R`, `wingtip.R`. Olhos, gorro, laço e óculos ficam presos em `head`; cachecol em `body`; pisca-pisca em `wing`/`wingtip`. Se você editar as animações no Blender, mantenha esses nomes e exporte glTF Binary com as actions (modo NLA Tracks ou Actions).
 
 **Compartilhar a expedição (estilo Strava).** No detalhe de uma expedição sua, o botão "Compartilhar expedição" gera a imagem no próprio aparelho, em 4 formatos e 2 tamanhos (Post 1:1 e Story 9:16):
 

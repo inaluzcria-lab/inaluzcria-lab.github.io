@@ -39,112 +39,51 @@
     if (c.scarf) { const s = new THREE.Mesh(new THREE.TorusGeometry(.26, .07, 12, 30), mat(c.scarf)); s.rotation.x = Math.PI / 2; s.position.y = .88; g.add(s); }
     return 1.35;
   }
-  /* Modelo 3D da Anny (.glb). O arquivo veio sem textura utilizável e sem esqueleto:
-     as cores seguem o concept (cabeça e costas azul-escuro, barriga amarela, bico claro, olho azul)
-     e as animações são feitas aqui, deformando o próprio modelo (morph targets). */
-  const GLB = {
-    surucua: { url: "assets/models/surucua.glb", rotY: 0, paint: { bico: 0xe2c49a, Cube001: 0x353f5a, Cube001_1: 0x2b3b4f, patinhas: 0xd9a08c } }
-  };
-  /* Volume do canto real (gravação da Anny), a cada 50 ms: comanda o peito. */
-  const ENV = [0.0, 0.0, 0.01, 0.01, 0.02, 0.03, 0.03, 0.03, 0.03, 0.04, 0.04, 0.06, 0.12, 0.19, 0.07, 0.07, 0.07, 0.07, 0.25, 0.31, 0.11, 0.08, 0.07, 0.23, 0.44, 0.14, 0.09, 0.09, 0.17, 0.53, 0.26, 0.13, 0.12, 0.1, 0.4, 0.39, 0.16, 0.1, 0.09, 0.45, 0.51, 0.17, 0.11, 0.11, 0.62, 0.6, 0.2, 0.11, 0.12, 0.62, 0.52, 0.19, 0.13, 0.13, 0.73, 0.64, 0.17, 0.12, 0.22, 0.91, 0.66, 0.19, 0.14, 0.21, 0.91, 0.59, 0.21, 0.14, 0.41, 1, 0.46, 0.19, 0.12, 0.53, 0.77, 0.48, 0.17, 0.12, 0.36, 0.93, 0.46, 0.19, 0.11, 0.24, 0.72, 0.44, 0.18, 0.12, 0.14, 0.67, 0.74, 0.21, 0.13, 0.12, 0.09, 0.09, 0.08, 0.07, 0.08, 0.07, 0.06, 0.05, 0.05, 0.04, 0.03, 0.03, 0.02, 0.02, 0.01, 0.0];
-  const FOLD = -1.18, UP = .8, DOWN = -.45; // ângulos das asas (rad)
+  /* Modelo 3D da Anny (.glb) com esqueleto, textura (SurucuaUV.png) e 4 animações feitas no Blender:
+     pouso (primeira aparição), idle (livre), canto (só o peito, no ritmo da gravação) e voo (corrida).
+     O arquivo-fonte editável está em assets/models/surucua.blend. */
+  const GLB = { surucua: { url: "assets/models/surucua.glb" } };
+  const SONG_MS = 5500; // duração da gravação do canto
   const models = {};
-  /* Cria as deformações: asas (fechar, cima, baixo) e peito (inflar). */
-  function rig(o) {
-    let wing = null, body = null;
-    o.traverse(m => { if (m.isMesh && m.name === "Cube001_1") wing = m; if (m.isMesh && m.name === "Cube001") body = m; });
-    if (wing && body) {
-      body.geometry.computeBoundingBox(); wing.geometry.computeBoundingBox();
-      const bb = body.geometry.boundingBox, wb = wing.geometry.boundingBox;
-      const sx = bb.max.x * .92, wy = (wb.min.y + wb.max.y) / 2, pos = wing.geometry.attributes.position;
-      const rot = ang => { const d = new Float32Array(pos.count * 3);
-        for (let i = 0; i < pos.count; i++) { const x = pos.getX(i), y = pos.getY(i), k = Math.sign(x), ax = Math.abs(x);
-          if (ax <= sx) continue; const dx = ax - sx, dy = y - wy;
-          const nx = sx + dx * Math.cos(ang) - dy * Math.sin(ang), ny = wy + dx * Math.sin(ang) + dy * Math.cos(ang);
-          d[i * 3] = k * nx - x; d[i * 3 + 1] = ny - y; }
-        return new THREE.Float32BufferAttribute(d, 3); };
-      wing.geometry.morphAttributes.position = [rot(FOLD), rot(UP), rot(DOWN)];
-      wing.geometry.morphTargetsRelative = true; wing.updateMorphTargets();
-      const bp = body.geometry.attributes.position, bn = body.geometry.attributes.normal, H = bb.max.y - bb.min.y;
-      const yc = bb.min.y + H * .55, zmid = (bb.min.z + bb.max.z) / 2, d = new Float32Array(bp.count * 3);
-      for (let i = 0; i < bp.count; i++) {
-        const x = bp.getX(i), y = bp.getY(i), z = bp.getZ(i);
-        const w = Math.exp(-((y - yc) ** 2) / (2 * (H * .14) ** 2) - (x * x) / (2 * (bb.max.x * .45) ** 2)) * Math.max(0, Math.min(1, (z - zmid) / ((bb.max.z - zmid) * .8)));
-        const amp = H * .1 * w, rx = x * .6, ry = (y - yc) * .5, rz = z - zmid, rl = Math.hypot(rx, ry, rz) || 1; d[i * 3] = rx / rl * amp; d[i * 3 + 1] = ry / rl * amp; d[i * 3 + 2] = rz / rl * amp;
-      }
-      body.geometry.morphAttributes.position = [new THREE.Float32BufferAttribute(d, 3)];
-      /* Barriga amarela pintada no próprio corpo (frente, da metade do peito para baixo). */
-      const navy = new THREE.Color(0x353f5a), yel = new THREE.Color(0xf0c030), col = new Float32Array(bp.count * 3), c = new THREE.Color();
-      for (let i = 0; i < bp.count; i++) {
-        const x = bp.getX(i), y = bp.getY(i), z = bp.getZ(i);
-        const front = Math.max(0, Math.min(1, (z - zmid) / ((bb.max.z - zmid) * .35) - .6));
-        const low = Math.max(0, Math.min(1, ((bb.min.y + H * .56) - y) / (H * .06)));
-        const side = Math.max(0, Math.min(1, (bb.max.x * .82 - Math.abs(x)) / (bb.max.x * .15)));
-        c.copy(navy).lerp(yel, front * low * side); col[i * 3] = c.r; col[i * 3 + 1] = c.g; col[i * 3 + 2] = c.b;
-      }
-      body.geometry.setAttribute("color", new THREE.Float32BufferAttribute(col, 3));
-      body.material = mat(0xffffff, { vertexColors: true });
-      body.geometry.morphTargetsRelative = true; body.updateMorphTargets();
-    }
-  }
   function preload() {
-    if (!has() || !THREE.GLTFLoader) return Promise.resolve();
+    if (!has() || !THREE.GLTFLoader || !THREE.SkeletonUtils) return Promise.resolve();
     const L = new THREE.GLTFLoader();
     return Promise.all(Object.entries(GLB).map(([id, cfg]) => new Promise(ok => L.load(cfg.url, g => {
       const o = g.scene;
-      o.traverse(m => { if (m.isMesh) { const c = cfg.paint[m.name]; m.material = mat(c != null ? c : 0x9a8f7c); } });
-      rig(o);
+      o.traverse(m => { if (m.isMesh) { m.frustumCulled = false; const ms = Array.isArray(m.material) ? m.material : [m.material];
+        ms.forEach(x => { x.roughness = .6; x.metalness = 0; if (x.map) x.map.anisotropy = 4; }); } });
       const b = new THREE.Box3().setFromObject(o), size = b.getSize(new THREE.Vector3()), k = 1.5 / Math.max(size.x, size.y, size.z), ctr = b.getCenter(new THREE.Vector3());
-      o.scale.setScalar(k); o.position.set(-ctr.x * k, -b.min.y * k, -ctr.z * k);
-      const wrap = new THREE.Group(); wrap.add(o); wrap.userData.top = size.y * k;
-      if (id === "surucua") {
-        [-1, 1].forEach(s => { const e = new THREE.Group(); e.name = "eye";
-          const ring = new THREE.Mesh(new THREE.SphereGeometry(.036, 16, 12), mat(0xf2c230)); e.add(ring);
-          const iris = new THREE.Mesh(new THREE.SphereGeometry(.028, 16, 12), mat(0x3f6ee0, { roughness: .2 })); iris.position.z = .012; e.add(iris);
-          const shine = new THREE.Mesh(new THREE.SphereGeometry(.008, 8, 6), new THREE.MeshBasicMaterial({ color: 0xffffff })); shine.position.set(.01, .012, .036); e.add(shine);
-          e.position.set(s * .105, .565, .155); e.rotation.y = s * .55; wrap.add(e); });
-      }
-      models[id] = wrap; ok();
+      models[id] = { scene: o, clips: g.animations, k, pos: new THREE.Vector3(-ctr.x * k, -b.min.y * k, -ctr.z * k), top: size.y * k };
+      ok();
     }, undefined, () => ok()))));
   }
-  /* ---------- animações: pouso, idle, canto (peito), fala, voo ---------- */
-  function parts(g) {
-    if (g.userData.parts) return g.userData.parts;
-    const p = { inner: g.children[0], wing: null, body: null, belly: null, lights: [] };
-    g.traverse(m => { if (m.name === "Cube001_1" && m.isMesh) p.wing = m; if (m.name === "Cube001" && m.isMesh) p.body = m; if (m.name === "belly") p.belly = m; if (m.userData.light) p.lights.push(m); });
-    return (g.userData.parts = p);
+  const bone = (g, n) => g.userData.bones && (g.userData.bones[n] || g.userData.bones[n.replace(/\./g, "")]);
+  /* Prende um objeto (em coordenadas do modelo normalizado) a um osso, com o esqueleto na pose de repouso. */
+  function pin(g, obj, boneName) {
+    const wrap = g.children[0], bn = bone(g, boneName); wrap.add(obj);
+    if (!bn) return;
+    g.userData.skel.forEach(s => s.pose()); g.updateMatrixWorld(true); bn.attach(obj);
+    if (g.userData.mixer) { g.userData.mixer.update(0); }
   }
-  function play(g, name, ms) { g.userData.anim = { name, t0: performance.now(), ms: ms || 0 }; }
-  function pose(p, fold, up, down, chest) {
-    if (p.wing && p.wing.morphTargetInfluences) { const f = p.wing.morphTargetInfluences; f[0] = fold; f[1] = up; f[2] = down; }
-    if (p.body && p.body.morphTargetInfluences) p.body.morphTargetInfluences[0] = chest;
-    if (p.belly) p.belly.scale.z = .085 * (1 + chest * .9);
-    const ang = fold * FOLD + up * UP + down * DOWN;
-    p.lights.forEach(l => { const b = l.userData.base, k = Math.sign(b.x), sx = .2, wy = .33, dx = Math.abs(b.x) - sx, dy = b.y - wy;
-      l.position.set(k * (sx + dx * Math.cos(ang) - dy * Math.sin(ang)), wy + dx * Math.sin(ang) + dy * Math.cos(ang), b.z); });
+  /* ---------- animações (clipes do .glb) ---------- */
+  function play(g, name, ms) {
+    const u = g && g.userData; if (!u || !u.mixer) return;
+    const clip = name === "fala" ? "canto" : name, next = u.acts[clip]; if (!next) return;
+    const prev = u.cur; u.cur = next; u.anim = { name, t0: performance.now(), ms: ms || 0 };
+    next.reset(); next.enabled = true; next.setEffectiveWeight(1);
+    const once = name === "pouso" || name === "canto";
+    next.setLoop(once ? THREE.LoopOnce : THREE.LoopRepeat, Infinity); next.clampWhenFinished = once;
+    next.timeScale = name === "fala" ? 1.6 : 1;
+    next.play(); if (prev && prev !== next) next.crossFadeFrom(prev, name === "pouso" ? 0 : .25, false);
   }
   function tick(g, now) {
-    if (!g || !g.userData.glb) return;
-    const p = parts(g), A = g.userData.anim || { name: "idle", t0: now }, t = now - A.t0, inner = p.inner;
-    inner.position.y = 0; inner.rotation.x = 0; inner.rotation.z = 0;
-    const flap = s => { const v = Math.sin(t * s); return [Math.max(0, v), Math.max(0, -v)]; };
-    if (A.name === "pouso") {
-      const q = Math.min(1, t / 1600), e = 1 - (1 - q) ** 3, [u, d] = flap(.045);
-      inner.position.y = (1 - e) * 2.2; inner.rotation.x = .3 * (1 - e);
-      pose(p, q > .75 ? (q - .75) / .25 : 0, u * (1 - q), d * (1 - q), 0);
-      if (q >= 1) play(g, "idle");
-    } else if (A.name === "voo") {
-      const [u, d] = flap(.03); inner.rotation.x = .28; inner.position.y = Math.sin(t / 250) * .05; pose(p, 0, u, d, 0);
-    } else if (A.name === "canto") {
-      const i = Math.floor(t / 50), lv = i < ENV.length ? ENV[i] : 0;
-      inner.rotation.x = -.12 * Math.min(1, t / 400); pose(p, 1, 0, 0, lv);
-      if (i >= ENV.length) play(g, "idle");
-    } else if (A.name === "fala") {
-      pose(p, 1, 0, 0, .35 + .35 * Math.abs(Math.sin(t / 90))); if (t > (A.ms || 1500)) play(g, "idle");
-    } else {
-      inner.position.y = Math.sin(now / 700) * .01; inner.rotation.y = GLB.surucua.rotY + Math.sin(now / 2600) * .25;
-      pose(p, 1, 0, 0, .06 + .04 * Math.sin(now / 900));
-    }
+    const u = g && g.userData; if (!u || !u.mixer) return;
+    const dt = Math.min(.1, Math.max(0, (now - (u.last || now)) / 1000)); u.last = now;
+    const A = u.anim || {};
+    if ((A.name === "pouso" || A.name === "canto") && !u.cur.isRunning()) play(g, "idle");
+    else if (A.name === "fala" && now - A.t0 > (A.ms || 1500)) play(g, "idle");
+    u.mixer.update(dt);
+    if (u.lights) { const f = Math.floor(now / 350); u.lights.forEach((l, i) => { l.visible = (i + f) % 3 !== 0; }); }
   }
   /* Acessórios de Natal do surucuá, posicionados no modelo normalizado (altura ≈ 0,66). */
   const ACC = {
@@ -169,23 +108,44 @@
       [-1, 1].forEach(k => { const r = new THREE.Mesh(new THREE.TorusGeometry(.045, .012, 8, 5), gold); r.position.set(k * .07, .56, .25); g.add(r); });
       const br = new THREE.Mesh(new THREE.BoxGeometry(.05, .01, .01), gold); br.position.set(0, .57, .26); g.add(br); return g; }
   };
-  /* eq = { cabeca, pescoco, asas, rosto } com ids de acessórios; só para o surucuá (.glb). */
+  /* eq = { cabeca, pescoco, asas, rosto } com ids de acessórios; cada um vai preso ao osso certo
+     (gorro, laço e óculos na cabeça, cachecol no corpo, pisca-pisca nas asas) e acompanha as animações. */
+  const ON = { gorro: "head", gorro_dourado: "head", laco: "head", oculos: "head", cachecol: "body" };
   function dress(g, eq) {
-    const inner = g.children[0]; if (!inner || !g.userData.glb) return;
-    const old = inner.getObjectByName("acc"); if (old) inner.remove(old);
-    const acc = new THREE.Group(); acc.name = "acc";
-    const add = id => { if (id === "gorro") acc.add(ACC.gorro(false)); else if (id === "gorro_dourado") acc.add(ACC.gorro(true)); else if (ACC[id]) acc.add(ACC[id]()); };
-    Object.values(eq || {}).forEach(add);
-    inner.add(acc); g.userData.parts = null;
+    if (!g || !g.userData.glb) return;
+    (g.userData.accs || []).forEach(o => o.parent && o.parent.remove(o)); g.userData.accs = []; g.userData.lights = [];
+    Object.values(eq || {}).forEach(id => {
+      if (id === "pisca") {
+        ACC.pisca().children.slice().forEach(l => { const k = l.position.x > 0 ? "L" : "R", tip = Math.abs(l.position.x) > .5;
+          pin(g, l, (tip ? "wingtip." : "wing.") + k); g.userData.accs.push(l); g.userData.lights.push(l); });
+        return;
+      }
+      const o = id === "gorro" ? ACC.gorro(false) : id === "gorro_dourado" ? ACC.gorro(true) : ACC[id] ? ACC[id]() : null;
+      if (o) { pin(g, o, ON[id] || "body"); g.userData.accs.push(o); }
+    });
   }
   function make(id, opts) {
     opts = opts || {};
-    if (models[id]) {
-      const g = new THREE.Group(), m = models[id].clone(true); m.rotation.y = GLB[id].rotY; g.add(m);
+    const M = models[id];
+    if (M) {
+      const g = new THREE.Group(), wrap = new THREE.Group(), o = THREE.SkeletonUtils.clone(M.scene);
+      o.scale.setScalar(M.k); o.position.copy(M.pos); wrap.add(o); g.add(wrap); wrap.userData.top = M.top;
+      const bones = {}, skel = [];
+      o.traverse(n => { if (n.isBone) bones[n.name] = n; if (n.isSkinnedMesh && skel.indexOf(n.skeleton) < 0) skel.push(n.skeleton); });
+      Object.assign(g.userData, { id, glb: true, bones, skel });
+      const mixer = new THREE.AnimationMixer(o), acts = {};
+      M.clips.forEach(c => { acts[c.name] = mixer.clipAction(c); });
+      Object.assign(g.userData, { mixer, acts });
       const sh = new THREE.Mesh(new THREE.CircleGeometry(.8, 32), new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: .22 }));
-      sh.rotation.x = -Math.PI / 2; sh.position.y = .01; g.add(sh); g.userData.id = id; g.userData.glb = true;
+      sh.rotation.x = -Math.PI / 2; sh.position.y = .01; g.add(sh);
+      /* olhos azuis com anel amarelo (como no concept), presos na cabeça */
+      [-1, 1].forEach(s => { const e = new THREE.Group(); e.name = "eye";
+        const ring = new THREE.Mesh(new THREE.SphereGeometry(.036, 16, 12), mat(0xf2c230)); e.add(ring);
+        const iris = new THREE.Mesh(new THREE.SphereGeometry(.028, 16, 12), mat(0x3f6ee0, { roughness: .2 })); iris.position.z = .012; e.add(iris);
+        const shine = new THREE.Mesh(new THREE.SphereGeometry(.008, 8, 6), new THREE.MeshBasicMaterial({ color: 0xffffff })); shine.position.set(.01, .012, .036); e.add(shine);
+        e.position.set(s * .105, .565, .155); e.rotation.y = s * .55; pin(g, e, "head"); });
       if (opts.eq) dress(g, opts.eq);
-      g.userData.anim = { name: "idle", t0: 0 }; tick(g, 0);
+      play(g, "idle"); mixer.update(0);
       return g;
     }
     const g = new THREE.Group(); let hatY = 1.35, hatX = 0, hatZ = 0, hatS = .9, hatT = .25;
@@ -239,5 +199,5 @@
     tr.dispose();
     return cache;
   }
-  window.Pets = { NAMES, make, lights, thumbs, cache, has, preload, dress, play, tick, SONG_MS: ENV.length * 50 };
+  window.Pets = { NAMES, make, lights, thumbs, cache, has, preload, dress, play, tick, SONG_MS };
 })();
