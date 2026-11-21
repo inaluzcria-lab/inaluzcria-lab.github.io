@@ -63,8 +63,12 @@ A UV foi refeita para usar a `SurucuaUV.png`: costas e capuz azul-marinho, barri
 | `idle` | Parado (loop) | Asas fechadas, respira, olha em volta e mexe o rabo |
 | `canto` | Toque no surucuá | Só o peito (osso `chest`) infla, no ritmo da gravação `assets/audio/canto.mp3` |
 | `voo` | Modo Procurar (corrida) | Bate as asas com o corpo inclinado |
+| `comer` | A frutinha chega no bico | Duas bicadas para a frente |
+| `curioso` | Abrir a bandeja de comida ou começar a falar | Inclina a cabeça de lado, pausa e volta |
+| `carinho` | Tocar no surucuá (reação principal ao carinho) | Fecha os olhos, relaxa as asas e aparece um ♥ ao lado da cabeça; o canto toca junto |
+| `feliz` | Depois de comer | Pulinho curto com as asas um pouco abertas e uma ♪ ao lado da cabeça |
 
-Ossos: `root`, `body`, `chest`, `head`, `tail`, `wing.L`, `wingtip.L`, `wing.R`, `wingtip.R`. Olhos, gorro, laço e óculos ficam presos em `head`; cachecol em `body`; pisca-pisca em `wing`/`wingtip`. Se você editar as animações no Blender, mantenha esses nomes e exporte glTF Binary com as actions (modo NLA Tracks ou Actions).
+Ossos: `root`, `body`, `chest`, `head`, `tail`, `wing.L`, `wingtip.L`, `wing.R`, `wingtip.R`. Olhos (que fecham no carinho, achatando no eixo vertical), gorro, laço e óculos ficam presos em `head`; cachecol em `body`; pisca-pisca em `wing`/`wingtip`. Se você editar as animações no Blender, mantenha esses nomes e exporte glTF Binary com as actions (modo NLA Tracks ou Actions).
 
 **Compartilhar a expedição (estilo Strava).** No detalhe de uma expedição sua, o botão "Compartilhar expedição" gera a imagem no próprio aparelho, em 4 formatos e 2 tamanhos (Post 1:1 e Story 9:16):
 

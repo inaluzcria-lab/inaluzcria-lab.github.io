@@ -8,9 +8,16 @@ window.CONFIG = {
      Ex.: "https://seuusuario.github.io/expedicoes/". Vazio = endereço atual. */
   siteUrl: "https://inaluzcria-lab.github.io/",
 
-  /* Configuração do app Web do Firebase (veja o README).
-     null = modo demonstração: tudo fica só neste aparelho. */
-  firebase: null,
+  /* Configuração pública do app Web do Firebase. */
+  firebase: {
+    apiKey: "AIzaSyDgg9GB1Zp62a_hfTY-7nEizrBxQg67Z68",
+    authDomain: "valedocafegames.firebaseapp.com",
+    projectId: "valedocafegames",
+    storageBucket: "valedocafegames.firebasestorage.app",
+    messagingSenderId: "334114237396",
+    appId: "1:334114237396:web:9c09d7a6e2912413f2c441",
+    measurementId: "G-EMSTRY0SZK"
+  },
 
   city: "Miguel Pereira",
   season: "Natal no Centro",

@@ -66,23 +66,30 @@
     if (g.userData.mixer) { g.userData.mixer.update(0); }
   }
   /* ---------- animações (clipes do .glb) ---------- */
+  /* Reações (clipes que tocam uma vez e voltam ao idle). Curioso: inclina a cabeça. Carinho: fecha os olhos e relaxa.
+     Feliz: pulinho com as asas um pouco abertas. */
+  const ONCE = ["pouso", "canto", "comer", "curioso", "carinho", "feliz"];
   function play(g, name, ms) {
     const u = g && g.userData; if (!u || !u.mixer) return;
     const clip = name === "fala" ? "canto" : name, next = u.acts[clip]; if (!next) return;
     const prev = u.cur; u.cur = next; u.anim = { name, t0: performance.now(), ms: ms || 0 };
     next.reset(); next.enabled = true; next.setEffectiveWeight(1);
-    const once = name === "pouso" || name === "canto" || name === "comer";
+    const once = ONCE.includes(name);
     next.setLoop(once ? THREE.LoopOnce : THREE.LoopRepeat, Infinity); next.clampWhenFinished = once;
     next.timeScale = name === "fala" ? 1.6 : 1;
     next.play(); if (prev && prev !== next) next.crossFadeFrom(prev, name === "pouso" ? 0 : .25, false);
+    if (name === "carinho") u.shut = { t0: performance.now() + 150, t1: performance.now() + 1450 };
   }
   function tick(g, now) {
     const u = g && g.userData; if (!u || !u.mixer) return;
     const dt = Math.min(.1, Math.max(0, (now - (u.last || now)) / 1000)); u.last = now;
     const A = u.anim || {};
-    if ((A.name === "pouso" || A.name === "canto" || A.name === "comer") && !u.cur.isRunning()) play(g, "idle");
+    if (ONCE.includes(A.name) && !u.cur.isRunning()) play(g, "idle");
     else if (A.name === "fala" && now - A.t0 > (A.ms || 1500)) play(g, "idle");
     u.mixer.update(dt);
+    /* olhos: fecham durante o carinho (achatam como um risquinho) e abrem devagar */
+    if (u.eyes) { const s = u.shut, k = s ? Math.min(1, Math.max(0, (now - s.t0) / 120)) * Math.min(1, Math.max(0, (s.t1 - now) / 160)) : 0;
+      if (s && now > s.t1) u.shut = null; u.eyes.forEach(e => { e.scale.y = 1 - .88 * k; }); }
     if (u.lights) { const f = Math.floor(now / 350); u.lights.forEach((l, i) => { l.visible = (i + f) % 3 !== 0; }); }
   }
   /* Acessórios de Natal do surucuá, posicionados no modelo normalizado (altura ≈ 0,66). */
@@ -143,7 +150,8 @@
         const ring = new THREE.Mesh(new THREE.SphereGeometry(.036, 16, 12), mat(0xf2c230)); e.add(ring);
         const iris = new THREE.Mesh(new THREE.SphereGeometry(.028, 16, 12), mat(0x3f6ee0, { roughness: .2 })); iris.position.z = .012; e.add(iris);
         const shine = new THREE.Mesh(new THREE.SphereGeometry(.008, 8, 6), new THREE.MeshBasicMaterial({ color: 0xffffff })); shine.position.set(.01, .012, .036); e.add(shine);
-        e.position.set(s * .105, .565, .155); e.rotation.y = s * .55; pin(g, e, "head"); });
+        e.position.set(s * .105, .565, .155); e.rotation.y = s * .55; pin(g, e, "head"); (g.userData.eyes = g.userData.eyes || []).push(e); });
+      const top = new THREE.Object3D(); top.position.set(0, .63, .05); pin(g, top, "head"); g.userData.top = top;
       /* ponto da boca (ponta do bico), preso na cabeça: a comida voa até aqui */
       g.updateMatrixWorld(true); let beak = null;
       o.traverse(n => { if (n.isMesh && [].concat(n.material).some(x => x && x.name === "bico")) beak = n; });
@@ -207,6 +215,7 @@
     return cache;
   }
   /* Posição da boca no mundo (para a comida voar até ela). */
+  function head(g) { const m = g && g.userData.top; return m ? m.getWorldPosition(new THREE.Vector3()) : null; }
   function mouth(g) { const m = g && g.userData.mouth; return m ? m.getWorldPosition(new THREE.Vector3()) : null; }
-  window.Pets = { NAMES, make, lights, thumbs, cache, has, preload, dress, play, tick, mouth, SONG_MS };
+  window.Pets = { NAMES, make, lights, thumbs, cache, has, preload, dress, play, tick, mouth, head, SONG_MS };
 })();

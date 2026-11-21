@@ -1295,9 +1295,8 @@
         if (!petHit(pet, cam, ndc)) return;
         const now = performance.now(); G.taps = G.taps.filter(x => now - x < 2000).concat(now);
         if (G.taps.length >= 5) { G.taps = []; G.anim = { k: "tonto", t: now }; sayG("Ei, tô tonto!"); return; }
-        hearts(ev.clientX, ev.clientY);
         if (!G.lastLove || now - G.lastLove > 1500) { G.lastLove = now; care("love"); }
-        sing(pet); sayG("♪ Ai, que bom! ♪");
+        Pets.play(pet, "carinho"); songOnly(); reactFx("♥", "heart"); sayG("♪ Ai, que bom! ♪");
       });
     } catch (_) { cv.replaceWith(h("img", { class: "gimg", src: T[S.sel], alt: petName(S.sel) })); }
   }
@@ -1414,20 +1413,40 @@
     G = null;
   }
   function sayG(t) { if (G && G.say) G.say.textContent = t; }
-  function anim(k, d) { if (!G || !G.pet) return; if (k === "falar") Pets.play(G.pet, "fala", d || 1500); else G.anim = { k, t: performance.now(), d: d || 1200 }; }
+  function anim(k, d) {
+    if (!G || !G.pet) return;
+    if (k === "falar") Pets.play(G.pet, "fala", d || 1500);
+    else if (k === "feliz") { Pets.play(G.pet, "feliz"); reactFx("♪", "note"); }
+    else if (k === "curioso") Pets.play(G.pet, "curioso");
+    else G.anim = { k, t: performance.now(), d: d || 1200 };
+  }
+  /* Coração ou notinha pequena ao lado da cabeça, fora da silhueta e sem bloquear os toques. */
+  function reactFx(ch, kind) {
+    if (!G || !G.pet || !G.cam || !G.r) return;
+    const v = Pets.head(G.pet), rc = G.r.domElement.getBoundingClientRect(), box = petRect(G.pet, G.cam); if (!v || !box) return;
+    v.project(G.cam);
+    const y = rc.top + (1 - v.y) / 2 * rc.height, x = rc.left + (box.x1 + 1) / 2 * rc.width + 10;
+    const e = h("span", { class: "rfx " + kind, "aria-hidden": "true", text: ch }); e.style.left = x + "px"; e.style.top = y + "px";
+    document.body.append(e); setTimeout(() => e.remove(), 1400);
+  }
   /* Canto do surucuá: gravação real; o peito infla no ritmo do som. */
   let song = null;
+  function songOnly() { try { song = song || new Audio("assets/audio/canto.mp3"); song.currentTime = 0; song.play().catch(() => {}); } catch (_) {} }
   function sing(pet) {
     Pets.play(pet, "canto");
     try { song = song || new Audio("assets/audio/canto.mp3"); song.currentTime = 0; song.play().catch(() => {}); } catch (_) {}
   }
   /* O toque acertou o surucuá? Compara com o retângulo do pássaro na tela (com uma folga para o dedo). */
+  /* Retângulo do surucuá na tela (coordenadas -1..1), a partir dos pés e do topo da cabeça.
+     Não usa a caixa da malha, que vem com as asas abertas da pose de repouso e fica larga demais. */
+  function petRect(pet, cam) {
+    const top = Pets.head(pet); if (!top) return null;
+    const feet = pet.getWorldPosition(new THREE.Vector3()).project(cam); top.project(cam);
+    const hgt = Math.max(.01, top.y - feet.y), aspect = cam.aspect || 1, half = hgt * .42 / aspect;
+    return { x0: top.x - half, x1: top.x + half, y0: feet.y, y1: top.y + hgt * .06 };
+  }
   function petHit(pet, cam, ndc) {
-    const body = pet.children[0]; if (!body) return false;
-    const b = new THREE.Box3().setFromObject(body); if (b.isEmpty()) return false;
-    let x0 = 1, x1 = -1, y0 = 1, y1 = -1; const v = new THREE.Vector3();
-    for (let i = 0; i < 8; i++) { v.set(i & 1 ? b.max.x : b.min.x, i & 2 ? b.max.y : b.min.y, i & 4 ? b.max.z : b.min.z).project(cam);
-      x0 = Math.min(x0, v.x); x1 = Math.max(x1, v.x); y0 = Math.min(y0, v.y); y1 = Math.max(y1, v.y); }
+    const r = petRect(pet, cam); if (!r) return false; const { x0, x1, y0, y1 } = r;
     const px = (x1 - x0) * .1, py = (y1 - y0) * .05;
     return ndc.x >= x0 - px && ndc.x <= x1 + px && ndc.y >= y0 - py && ndc.y <= y1 + py;
   }
@@ -1439,7 +1458,7 @@
   function care(k) {
     const p = S.pets[S.sel]; if (p.away) return toast("Ele foi passear. Busque no mapa!");
     if (k === "love") { p.love = clamp(p.love + 15); p.joy = clamp(p.joy + 5); p.bond = Math.min(10, (p.bond || 1) + .2); sayG("Ai, que bom!"); }
-    p.seen = Date.now(); save(); anim("feliz"); refreshBars();
+    p.seen = Date.now(); save(); refreshBars();
   }
   function refreshBars() {
     if (!G || !G.careRows) return;
@@ -1473,7 +1492,7 @@
       h("div", { class: "trayrow" }, items),
       h("p", { class: "traynote" }, "Só se ganha nas missões, nunca com dinheiro. Não alimente bichos de verdade. ",
         h("button", { class: "linkish", on: { click: () => { G.tray.remove(); G.tray = null; show("map"); } } }, "Onde conseguir")));
-    G.garden.append(G.tray);
+    G.garden.append(G.tray); anim("curioso");
   }
   function mouthXY() {
     if (!G || !G.pet || !G.cam || !G.r) return null;
@@ -1519,6 +1538,7 @@
     S.food[k]--; const fav = SP[S.sel].fav === k;
     p.hunger = clamp(p.hunger + (fav ? 45 : 30)); p.joy = clamp(p.joy + 5); p.seen = Date.now(); S.daily.fed++;
     save(); sayG(fav ? "Minha favorita! Nham, obrigado!" : "Nham, gostoso!"); refreshBars();
+    setTimeout(() => anim("feliz"), 1000);
     if (G && G.tray) { const open = G.tray; G.tray = null; open.remove(); openFood(); }
   }
   /* Repete a voz da pessoa mais aguda (estilo Talking Tom). O áudio não sai do aparelho. */
@@ -1531,7 +1551,7 @@
     let ms;
     try { ms = await navigator.mediaDevices.getUserMedia({ audio: true }); }
     catch (_) { toast("Sem microfone: o pet fala sozinho"); speak("Oi! Fala comigo!", 2); anim("falar", 1500); return; }
-    const chunks = []; rec = new MediaRecorder(ms);
+    const chunks = []; rec = new MediaRecorder(ms); anim("curioso");
     rec.ondataavailable = ev => ev.data.size && chunks.push(ev.data);
     rec.onstop = () => {
       ms.getTracks().forEach(t => t.stop()); btn.classList.remove("rec"); rec = null;
