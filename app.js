@@ -11,9 +11,7 @@
   const MISS = C.missions, SP = C.species, PETS = Object.keys(SP);
   const byId = id => MISS.find(m => m.id === id);
   const HOUR = 36e5;
-  /* Caixinha de Natal desativada nesta versão: não aparece, não abre, não concede prêmio e não gera novas.
-     Prêmios já ganhos e o saldo antigo (S.boxes) ficam guardados. Para voltar, a abertura precisa rodar em
-     backend com verificação de 18+ (ver README). */
+  /* Caixinha de Natal: as chances são visíveis e não há compra nem prêmio em dinheiro. */
   const BOX = !!(C.box && C.box.enabled);
   const CARE_THRESHOLDS = Object.assign({ hunger: 40, love: 30, sleep: 30, joy: 30 }, C.careThresholds || {});
   const CARE_LEVELS = [
@@ -94,7 +92,7 @@
   function fresh() {
     const names = ["Saíra", "Sabiá", "Tiê", "Quati", "Jabuti", "Surucuá", "Tucano"];
     return { v: 1, nick: names[rnd() * names.length | 0] + " " + (1000 + (rnd() * 9000 | 0)), code: DB.randId(6), xp: 0, big: false, voice: true, onb: false,
-      pets: { surucua: newPet() }, sel: "surucua", acc: [], eq: {}, food: { frutinhas: 1 }, boxes: 1, done: {}, ever: {}, photos: 0,
+      pets: { surucua: newPet() }, sel: "surucua", acc: [], eq: {}, food: { frutinhas: 1 }, boxes: 10, boxSeeded: true, done: {}, ever: {}, photos: 0,
       streak: { last: "", n: 0 }, daily: { day: "", fed: 0, visit: 0, claps: 0, claimed: [] }, clapped: [], gold: false, enfeites: 0, ref: null,
       exp: null, club: null, clubs: [], week: { id: "", places: [] }, shield: "", talk: {}, myPlaces: [] };
   }
@@ -103,6 +101,7 @@
     const s = DB.LS.get("state", null);
     if (s && typeof s === "object" && s.v === 1) {
       S = Object.assign(fresh(), s);
+      if (s.boxSeeded !== true) { S.boxes = 10; S.boxSeeded = true; }
       S.nick = DB.cleanNick(S.nick) || fresh().nick;
       for (const k of Object.keys(S.pets)) if (!SP[k]) delete S.pets[k];
       if (!S.pets.surucua) S.pets = { surucua: S.pets.tucano || newPet() };
@@ -1876,12 +1875,55 @@
   function renderPartner() {
     const store = h("input", { type: "text", maxLength: 60, placeholder: "Nome da loja", autocomplete: "organization", "aria-label": "Nome da loja" });
     const contact = h("input", { type: "text", maxLength: 60, placeholder: "WhatsApp ou e-mail da loja", autocomplete: "off", "aria-label": "Contato" });
+    let birdChoice = null;
+    const otherName = h("input", { type: "text", maxLength: 60, placeholder: "Digite o nome do passarinho", autocomplete: "off", "aria-label": "Qual passarinho?", "aria-describedby": "bird-name-error" });
+    const otherError = h("p", { id: "bird-name-error", class: "field-error", role: "alert", text: "Digite o nome do passarinho." });
+    const otherWrap = h("div", { style: { display: "none" } }, h("label", { style: { display: "block", fontWeight: "700", marginBottom: ".35rem" }, text: "Qual passarinho?" }), otherName, otherError);
+    const birdOptions = h("div", { class: "bird-options", role: "radiogroup", "aria-label": "Qual passarinho você gostaria de ter na sua loja?" });
+    const drawBirdOptions = () => put(birdOptions, ...[
+      ["surucua", "Surucuá"],
+      ["tucano", "Tucano"],
+      ["other", "Outro"]
+    ].map(([value, label]) => h("button", {
+      type: "button",
+      class: "chip" + (birdChoice === value ? " on" : ""),
+      role: "radio",
+      "aria-checked": String(birdChoice === value),
+      on: { click: () => {
+        birdChoice = value;
+        otherName.value = "";
+        otherWrap.style.display = value === "other" ? "block" : "none";
+        otherError.classList.remove("on");
+        otherName.removeAttribute("aria-invalid");
+        drawBirdOptions();
+      } }
+    }, label)));
+    drawBirdOptions();
     const consent = h("input", { type: "checkbox", id: "consent" });
     const send = h("button", { class: "btn", style: { marginTop: ".6rem" } }, "Quero minha loja no jogo");
     send.addEventListener("click", async () => {
       if (!consent.checked) return toast("Marque a autorização de contato");
+      if (birdChoice === "other" && !otherName.value.trim()) {
+        otherError.classList.add("on");
+        otherName.setAttribute("aria-invalid", "true");
+        otherName.focus();
+        return;
+      }
+      const preference = birdChoice ? { birdChoice } : {};
+      if (birdChoice === "other") preference.birdName = otherName.value.trim();
       send.disabled = true;
-      try { await DB.addLead({ store: store.value, contact: contact.value, consent: true }); store.value = contact.value = ""; consent.checked = false; toast("Recebido! Vamos falar com você."); }
+      try {
+        await DB.addLead({ store: store.value, contact: contact.value, consent: true, ...preference });
+        store.value = contact.value = "";
+        consent.checked = false;
+        birdChoice = null;
+        otherName.value = "";
+        otherWrap.style.display = "none";
+        otherError.classList.remove("on");
+        otherName.removeAttribute("aria-invalid");
+        drawBirdOptions();
+        toast("Recebido! Vamos falar com você.");
+      }
       catch (_) { toast("Preencha o nome e o contato da loja"); }
       send.disabled = false;
     });
@@ -1890,6 +1932,8 @@
       h("h2", { class: "ptitle", style: { fontSize: "1.3rem" }, text: "Leve sua loja para o jogo" }),
       h("p", { text: "Um bicho da serra passa a morar na sua loja. Quem faz a missão posta a sua vitrine e volta para buscar comidinha para o pet." }),
       h("div", { class: "card" }, store, contact,
+        h("div", { class: "sec", style: { marginTop: ".4rem" } }, "Qual passarinho você gostaria de ter na sua loja?"),
+        birdOptions, otherWrap,
         h("label", { class: "consent", htmlFor: "consent" }, consent, h("span", { text: "Autorizo a equipe do jogo a entrar em contato sobre o Plano Parceiro. Posso pedir a exclusão a qualquer momento." })), send),
       storeMissionCard(),
       h("div", { class: "sec" }, "Como fica o seu painel"),

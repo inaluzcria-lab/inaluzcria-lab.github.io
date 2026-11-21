@@ -52,6 +52,12 @@ await t("dono apaga aplausos, parte privada e post (mesmo sem poder publicar)", 
   const b = writeBatch(adult); b.delete(doc(adult, "posts_private/CCCCCC1")); b.delete(doc(adult, "posts/CCCCCC1")); await assertSucceeds(b.commit()); });
 await t("dono apaga post antigo", () => assertSucceeds(deleteDoc(doc(anon, "posts/OLDPOST1"))));
 await t("conta anônima não marca lugar", () => assertFails(setDoc(doc(anon, "places/PLACE01"), { uid: "anon1", nick: "Ana", name: "Praça", type: "praca", lat: -22.4, lng: -43.4, confirms: 1, createdAt: serverTimestamp() })));
+await t("lead pode ser enviado sem preferência de passarinho", () => assertSucceeds(setDoc(doc(anon, "leads/LEAD01"), { store: "Loja A", contact: "loja@example.com", consent: true, createdAt: serverTimestamp() })));
+await t("lead aceita preferência Surucuá", () => assertSucceeds(setDoc(doc(anon, "leads/LEAD02"), { store: "Loja B", contact: "loja2@example.com", consent: true, birdChoice: "surucua", createdAt: serverTimestamp() })));
+await t("lead aceita preferência Tucano", () => assertSucceeds(setDoc(doc(anon, "leads/LEAD03"), { store: "Loja C", contact: "loja3@example.com", consent: true, birdChoice: "tucano", createdAt: serverTimestamp() })));
+await t("lead aceita Outro com nome", () => assertSucceeds(setDoc(doc(anon, "leads/LEAD04"), { store: "Loja D", contact: "loja4@example.com", consent: true, birdChoice: "other", birdName: "Arara", createdAt: serverTimestamp() })));
+await t("lead Outro sem nome é recusado", () => assertFails(setDoc(doc(anon, "leads/LEAD05"), { store: "Loja E", contact: "loja5@example.com", consent: true, birdChoice: "other", createdAt: serverTimestamp() })));
+await t("nome do passarinho só é aceito com Outro", () => assertFails(setDoc(doc(anon, "leads/LEAD06"), { store: "Loja F", contact: "loja6@example.com", consent: true, birdChoice: "surucua", birdName: "Arara", createdAt: serverTimestamp() })));
 await t("ninguém grava config/public pelo app", () => assertFails(setDoc(doc(adult, "config/public"), { feedOpen: true })));
 await t("perfil próprio pode ser apagado", () => assertSucceeds(deleteDoc(doc(adult, "users/g2"))));
 await env.cleanup();

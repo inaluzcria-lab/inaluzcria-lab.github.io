@@ -246,6 +246,9 @@ input[type=text],input[type=tel],select{width:100%;font:inherit;font-size:16px;p
 .consent{display:flex;gap:.5rem;align-items:flex-start;font-size:.82rem;margin-top:.6rem}
 .consent input{margin-top:.2rem;width:1.1rem;height:1.1rem;accent-color:var(--green)}
 .card input[type=text]{width:100%;margin-bottom:.5rem}
+.bird-options{display:flex;flex-wrap:wrap;gap:.35rem;margin-bottom:.5rem}
+.field-error{display:none;color:var(--red);font-size:.82rem;font-weight:700;margin:.25rem 0 .5rem}
+.field-error.on{display:block}
 .onbimg{width:9rem}
 .onb .plist{max-width:22rem}
 .onb .opt{max-width:20rem}

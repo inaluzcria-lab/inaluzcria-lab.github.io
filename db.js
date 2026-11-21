@@ -303,11 +303,22 @@
   };
 
   /* Contato de lojista (dado de empresa, com consentimento). Ninguém lê pelo app. */
-  DB.addLead = async function ({ store, contact, consent }) {
+  DB.addLead = async function ({ store, contact, consent, birdChoice, birdName }) {
     store = str(store, 60); contact = str(contact, 60);
     if (!store || !contact || consent !== true) throw new Error("invalid");
-    if (DB.mode === "firebase") await DB.fs.collection("leads").add({ store, contact, consent: true, createdAt: fv().serverTimestamp() });
-    else { const all = LS.get("leads", []); all.unshift({ store, contact, createdAt: Date.now() }); LS.set("leads", all.slice(0, 20)); }
+    const choices = ["surucua", "tucano", "other"];
+    const o = { store, contact, consent: true };
+    if (choices.includes(birdChoice)) {
+      o.birdChoice = birdChoice;
+      if (birdChoice === "other") {
+        o.birdName = str(birdName, 60);
+        if (!o.birdName) throw new Error("invalid");
+      }
+    } else if (birdChoice != null) {
+      throw new Error("invalid");
+    }
+    if (DB.mode === "firebase") await DB.fs.collection("leads").add(Object.assign({ createdAt: fv().serverTimestamp() }, o));
+    else { const all = LS.get("leads", []); all.unshift(Object.assign({ createdAt: Date.now() }, o)); LS.set("leads", all.slice(0, 20)); }
   };
 
   /* Apagar meus dados. Primeiro o servidor; o aparelho só é limpo depois que TUDO no servidor deu certo.

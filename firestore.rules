@@ -223,9 +223,12 @@ service cloud.firestore {
     // Contato de lojista: só cria. Ninguém lê pelo app.
     match /leads/{lid} {
       allow create: if signedIn()
-        && request.resource.data.keys().hasOnly(['store', 'contact', 'consent', 'createdAt'])
+        && request.resource.data.keys().hasOnly(['store', 'contact', 'consent', 'birdChoice', 'birdName', 'createdAt'])
         && text(request.resource.data.store, 60) && text(request.resource.data.contact, 60)
         && request.resource.data.consent == true
+        && (opt(request.resource.data, 'birdChoice') || request.resource.data.birdChoice in ['surucua', 'tucano', 'other'])
+        && (opt(request.resource.data, 'birdName') || (request.resource.data.birdChoice == 'other' && text(request.resource.data.birdName, 60)))
+        && (!('birdChoice' in request.resource.data) || request.resource.data.birdChoice != 'other' || ('birdName' in request.resource.data && text(request.resource.data.birdName, 60)))
         && request.resource.data.createdAt == request.time;
     }
 

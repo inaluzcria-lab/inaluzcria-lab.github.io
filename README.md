@@ -117,7 +117,7 @@ Esta versão deixa todo mundo jogar sem conta e mantém fechado o que depende de
 | Jogar (jardim, missões, acessórios, mapa, mundo real) | Aberto, sem conta | — |
 | Publicar post ou marcar lugar | **Fechado** para todos | Verificação de idade confiável (ver abaixo) |
 | Feed público (ver posts de outras pessoas) | **Fechado**: cada um vê só os seus | Responsável e canal de moderação, e então `config/public.feedOpen = true` |
-| Caixinha de Natal (roleta) | **Desativada** | Abertura e prêmio em backend, com verificação de 18+ |
+| Caixinha de Natal (roleta) | **Ativada** | 10 caixinhas iniciais disponíveis; sorteio e prêmios continuam no app |
 | Apagar meus dados | Aberto | Canal sem login com contato real (ver Privacidade) |
 
 ### Publicar: conta Google + maioridade verificada
@@ -144,7 +144,7 @@ Esta versão deixa todo mundo jogar sem conta e mantém fechado o que depende de
 
 ### Caixinha de Natal
 
-Desativada em `config.js` (`box: { enabled: false }`): o botão saiu do topo, a caixinha não abre, não concede prêmio e nenhuma ação gera caixinha nova (missão, sequência de dias, convite). Prêmios já ganhos (como o gorro dourado) e o saldo antigo ficam guardados. Para voltar, a abertura e o sorteio precisam rodar em backend com verificação de 18+; com idade desconhecida ou menor de 18, a roleta fica oculta.
+Ativada em `config.js` (`box: { enabled: true }`). Novos jogadores começam com 10 caixinhas; o estado salvo existente recebe esse saldo uma vez. Abrir uma caixinha desconta 1 unidade e concede um prêmio pelas chances visíveis.
 
 ### Privacidade e exclusão
 
