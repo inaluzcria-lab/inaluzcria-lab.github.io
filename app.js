@@ -812,14 +812,26 @@
     speak(m.tip);
     try {
       if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) throw new Error("sem câmera");
-      stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: "environment" }, width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false });
+      await camStream();
       if (!$("v-cam").classList.contains("on")) return stopStream();
-      const vid = $("vid"); vid.srcObject = stream; await vid.play().catch(() => {});
       $("fallback").style.display = "none";
     } catch (_) {
       $("fallback").style.display = "block";
       toast("Sem câmera: use a Galeria ou permita a câmera");
     }
+  }
+  /* Câmera de trás ou de selfie (frontal). A selfie aparece espelhada, como um espelho, e a foto sai igual à tela. */
+  let camFacing = "environment";
+  async function camStream() {
+    stopStream();
+    stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: camFacing }, width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false });
+    const vid = $("vid"); vid.srcObject = stream; vid.classList.toggle("selfie", camFacing === "user"); await vid.play().catch(() => {});
+  }
+  async function flipCam() {
+    if (tag || seek) return;
+    camFacing = camFacing === "user" ? "environment" : "user";
+    try { await camStream(); $("fallback").style.display = "none"; }
+    catch (_) { camFacing = camFacing === "user" ? "environment" : "user"; toast("Não deu para trocar de câmera neste aparelho"); try { await camStream(); } catch (_) {} }
   }
   /* =========================================================
      MODO TAG (MindAR): a câmera reconhece a mandala impressa no balcão e o surucuá pousa nela.
@@ -836,26 +848,36 @@
     $("camlabel").textContent = m.name + " · +" + m.xp + " XP";
     $("camxp").textContent = S.done[m.id] === dayKey() ? "Já valeu hoje" : "";
     put($("chat"), h("div", { class: "bubble" }, h("b", { style: { display: "flex", alignItems: "center", gap: ".35rem" } }, h("img", { src: T.surucua, alt: "", class: "bubav" }), C.guideName + ", seu guia"),
-      "Procura a minha tag no balcão de " + m.partner + "! Aponta a câmera pra ela que eu pouso lá."),
+      "Procura a minha tag no balcão de " + m.partner + ", o letreiro \"É junto dos Bão\" ou a caneca do Cheirin Bão! Aponta a câmera que eu pouso lá."),
       h("button", { class: "speak", on: { click: () => { stopTag(); openCam(m, true); } } }, "Estou sem a tag"));
     $("camhint").textContent = "Carregando a câmera da tag…";
     $("fallback").style.display = "none"; $("arcv").style.display = "none";
     const box = h("div", { class: "tagbox" }); vc.prepend(box);
     tag = { box, mt: null, pet: null, found: false, landed: false, m };
-    speak("Procura a minha tag no balcão! Aponta a câmera pra ela que eu pouso lá.");
+    speak("Procura a minha tag no balcão ou o letreiro É junto dos Bão! Aponta a câmera que eu pouso lá.");
     try {
       await loadMind();
       if (!tag || tag.box !== box) return;
       const mt = new window.MindARThree({ container: box, imageTargetSrc: "assets/tag.mind", uiScanning: "no", uiLoading: "no", uiError: "no", filterMinCF: .0001, filterBeta: .001 });
       tag.mt = mt; Pets.lights(mt.scene);
-      const anchor = mt.addAnchor(0), pet = Pets.make("surucua", { eq: S.eq });
-      pet.scale.setScalar(.55); pet.rotation.x = 1.0; pet.position.y = -.15; pet.visible = false; anchor.group.add(pet); tag.pet = pet;
-      anchor.onTargetFound = () => { if (!tag) return; tag.found = true; pet.visible = true; $("camhint").textContent = "O surucuá pousou na tag! Toque nele para ouvir o canto.";
-        if (!tag.landed) { tag.landed = true; Pets.play(pet, "pouso"); } };
-      anchor.onTargetLost = () => { if (!tag) return; tag.found = false; $("camhint").textContent = "Aponte de novo para a tag."; };
+      /* Alvos em assets/tag.mind: 0 = mandala impressa (deitada no balcão), 1 = letreiro neon "É junto dos Bão" (na parede),
+         2 = logo "Cheirin Bão" da caneca (o surucuá pousa na borda da caneca). */
+      const SPOTS = [
+        { scale: .55, rx: 1.0, x: 0, y: -.15, msg: "O surucuá pousou na tag! Toque nele para ouvir o canto." },
+        { scale: .17, rx: 0, x: .08, y: -.17, msg: "O surucuá pousou no letreiro! Toque nele para ouvir o canto." },
+        { scale: .32, rx: 0, x: .3, y: -.32, z: .2, msg: "O surucuá pousou na caneca! Toque nele para ouvir o canto." }];
+      const pet = Pets.make("surucua", { eq: S.eq }); pet.visible = false; tag.pet = pet;
+      SPOTS.forEach((sp, i) => {
+        const anchor = mt.addAnchor(i);
+        anchor.onTargetFound = () => { if (!tag) return;
+          pet.scale.setScalar(sp.scale); pet.rotation.set(sp.rx, 0, 0); pet.position.set(sp.x, sp.y, sp.z || 0); anchor.group.add(pet);
+          tag.found = true; tag.spot = i; pet.visible = true; $("camhint").textContent = sp.msg;
+          if (!tag.landed) { tag.landed = true; Pets.play(pet, "pouso"); } };
+        anchor.onTargetLost = () => { if (!tag || tag.spot !== i) return; tag.found = false; pet.visible = false; $("camhint").textContent = "Aponte de novo para a tag ou o letreiro."; };
+      });
       await mt.start();
       if (!tag || tag.mt !== mt) { try { mt.stop(); } catch (_) {} return; }
-      $("camhint").textContent = "Aponte a câmera para a tag do surucuá.";
+      $("camhint").textContent = "Aponte a câmera para a tag do surucuá ou o letreiro neon.";
       mt.renderer.setAnimationLoop(() => { Pets.tick(pet, performance.now()); mt.renderer.render(mt.scene, mt.camera); });
       box.addEventListener("click", () => { if (tag && tag.found) sing(pet); });
     } catch (_) {
@@ -938,6 +960,7 @@
     seek = null; $("v-cam").classList.remove("seek");
   }
   async function startVideoOnly() {
+    camFacing = "environment"; $("vid").classList.remove("selfie");
     try {
       stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: "environment" } }, audio: false });
       const vid = $("vid"); vid.srcObject = stream; await vid.play().catch(() => {});
@@ -998,6 +1021,7 @@
     ar = null;
   }
   $("camclose").addEventListener("click", closeCam);
+  $("camflip").addEventListener("click", flipCam);
   $("campick").addEventListener("click", () => $("filepick").click());
   $("filepick").addEventListener("change", async e => {
     const f = e.target.files && e.target.files[0]; e.target.value = "";
@@ -1031,7 +1055,8 @@
         const tv = tag.box.querySelector("video"); if (tv && tv.videoWidth) cover(c, tv, W, H);
         tag.mt.renderer.render(tag.mt.scene, tag.mt.camera); c.drawImage(tag.mt.renderer.domElement, 0, 0, W, H);
       } else if (tag) { toast("Aponte para a tag do surucuá primeiro"); return; }
-      else if (stream && vid.videoWidth) cover(c, vid, W, H); else cover(c, bgImg || $("fallback"), W, H);
+      else if (stream && vid.videoWidth) { if (camFacing === "user") { c.save(); c.translate(W, 0); c.scale(-1, 1); cover(c, vid, W, H); c.restore(); } else cover(c, vid, W, H); }
+      else cover(c, bgImg || $("fallback"), W, H);
       if (tag) { /* já desenhado acima */ }
       else if (ar && ar.r) { ar.r.render(ar.sc, ar.camera); c.drawImage($("arcv"), 0, 0, W, H); }
       else if (ar && ar.img && ar.img.complete) { const s = W * .45; c.drawImage(ar.img, (W - s) / 2, H * .6, s, s); }
@@ -1160,6 +1185,7 @@
     const chips = h("div", { class: "petchips" }, Object.keys(S.pets).map(id => h("button", { class: "petchip" + (id === S.sel ? " on" : ""),
       "aria-label": petName(id) + (id === S.sel ? ", mostrar níveis de cuidado" : ""),
       "aria-expanded": String(id === S.sel && G && G.careOpen),
+      "aria-controls": id === S.sel ? "garden-care-panel" : null,
       on: { click: () => {
         if (id === S.sel) setCarePanel(!G.careOpen);
         else { S.sel = id; save(); renderGarden(); }
@@ -1168,11 +1194,12 @@
     const cv = h("canvas", { class: "gcv" });
     const garden = h("div", { class: "garden" }, cv, h("div", { class: "gtop" }, chips, h("div", { class: "gtools" },
       h("button", { class: "gchip", "aria-label": "Mensagens do pet", on: { click: () => chatSheet(S.sel) } }, "💬", needs(S.sel) ? h("i", { class: "reddot" }) : null),
+      h("button", { class: "gchip gflip", "aria-label": "Trocar entre câmera de trás e selfie", on: { click: flipGardenCam } }, "🔄 Selfie"),
       h("button", { class: "gchip", on: { click: wardrobe } }, "Vestir"),
       h("span", { class: "gchip", text: "❤ " + Math.floor(p.bond || 1) }))), careNotice, carePanel, say,
       h("div", { class: "gbar" },
         h("button", { on: { click: openFood } }, icon("cookie"), "Alimentar"),
-        h("button", { on: { click: () => care("love") } }, icon("heart"), "Carinho"),
+        h("button", { class: "gar", "aria-pressed": "false", "aria-label": "Ver o surucuá no mundo real", on: { click: toggleGardenAR } }, icon("cam"), "Mundo real"),
         h("button", { class: "mic", on: { click: talk } }, icon("mic"), "Falar")));
     if (p.away) {
       const home = MISS.find(m => m.pet === S.sel) || MISS[0];
@@ -1205,7 +1232,18 @@
       h("span", { class: "care-arrow", "aria-hidden": "true", text: "⌄" }));
     G.carePanel.classList.toggle("open", G.careOpen);
     G.carePanel.setAttribute("aria-hidden", String(!G.careOpen));
-    G.garden.querySelectorAll(".petchip").forEach((chip, i) => chip.setAttribute("aria-expanded", String(i === Object.keys(S.pets).indexOf(S.sel) && G.careOpen)));
+    const petIds = Object.keys(S.pets);
+    G.garden.querySelectorAll(".petchip").forEach((chip, i) => {
+      const id = petIds[i], dot = chip.querySelector("i");
+      chip.setAttribute("aria-expanded", String(id === S.sel && G.careOpen));
+      if (needs(id) && !dot) chip.append(h("i"));
+      else if (!needs(id) && dot) dot.remove();
+    });
+    const chatButton = G.garden.querySelector(".gtools .gchip"), chatDot = chatButton.querySelector(".reddot");
+    if (needs(S.sel) && !chatDot) chatButton.append(h("i", { class: "reddot" }));
+    else if (!needs(S.sel) && chatDot) chatDot.remove();
+    const gardenTab = $("tabbar").querySelectorAll("button")[3];
+    if (gardenTab) gardenTab.classList.toggle("hasdot", petIds.some(needs));
   }
   function setCarePanel(open) {
     if (!G) return;
@@ -1234,13 +1272,14 @@
       const tree = new THREE.Group();
       [[1.1, 1.2, .9], [.85, 1, 1.6], [.6, .8, 2.2]].forEach(([rr, hh, y]) => { const c = new THREE.Mesh(new THREE.ConeGeometry(rr, hh, 20), new THREE.MeshStandardMaterial({ color: 0x2f8a4a })); c.position.y = y; tree.add(c); });
       for (let i = 0; i < 12 + S.enfeites * 3 && i < 40; i++) { const b = new THREE.Mesh(new THREE.SphereGeometry(.06, 10, 8), new THREE.MeshBasicMaterial({ color: [0xffd36b, 0xff6b5b, 0x8fd9ff][i % 3] })); const a = i * 2.4, y = .5 + (i % 10) * .19; b.position.set(Math.cos(a) * (1 - y / 3), y, Math.sin(a) * (1 - y / 3)); tree.add(b); }
-      tree.position.set(1.9, 0, -1.2); sc.add(tree);
+      tree.position.set(1.9, 0, -1.2); sc.add(tree); G.ground = ground; G.tree = tree;
       const pet = Pets.make(S.sel, { eq: S.eq }); pet.position.set(-.3, 0, 0); if (S.pets[S.sel].away) pet.visible = false; sc.add(pet);
       G.r = r; G.sc = sc; G.cam = cam; G.pet = pet; G.anim = { k: "idle", t: 0 }; G.base = pet.rotation.y; G.taps = [];
       const loop = t => {
         G.raf = requestAnimationFrame(loop);
         const a = G.anim, dt = t - a.t;
-        pet.position.y = 0; pet.rotation.z = 0; pet.rotation.y = G.base; Pets.tick(pet, t);
+        if (G.ar && G.ar.controls) G.ar.controls.update();
+        pet.position.y = G.ar ? G.ar.y0 : 0; pet.rotation.z = 0; pet.rotation.y = G.base; Pets.tick(pet, t);
         if (a.k === "feliz" && dt < 900) pet.position.y += Math.abs(Math.sin(dt / 900 * Math.PI * 2)) * .5;
         else if (a.k === "tonto" && dt < 1500) { pet.rotation.y = G.base + dt / 80; pet.rotation.z = Math.sin(dt / 90) * .2; }
 
@@ -1248,10 +1287,17 @@
       };
       G.anim = { k: "idle", t: performance.now() }; Pets.play(pet, "pouso");
       G.raf = requestAnimationFrame(loop);
-      cv.addEventListener("pointerup", () => {
+      /* Tocar no surucuá = carinho, e ele responde cantando. 5 toques rápidos = fica tonto. */
+      const ndc = new THREE.Vector2();
+      cv.addEventListener("pointerup", ev => {
         if (G.dragging || G.feeding) return; // soltou a comidinha no pássaro: não conta como toque
+        const rc = cv.getBoundingClientRect(); ndc.set((ev.clientX - rc.left) / rc.width * 2 - 1, -((ev.clientY - rc.top) / rc.height) * 2 + 1);
+        if (!petHit(pet, cam, ndc)) return;
         const now = performance.now(); G.taps = G.taps.filter(x => now - x < 2000).concat(now);
-        if (G.taps.length >= 5) { G.taps = []; G.anim = { k: "tonto", t: now }; sayG("Ei, tô tonto!"); } else { sing(pet); sayG("♪ Escuta o meu canto! ♪"); }
+        if (G.taps.length >= 5) { G.taps = []; G.anim = { k: "tonto", t: now }; sayG("Ei, tô tonto!"); return; }
+        hearts(ev.clientX, ev.clientY);
+        if (!G.lastLove || now - G.lastLove > 1500) { G.lastLove = now; care("love"); }
+        sing(pet); sayG("♪ Ai, que bom! ♪");
       });
     } catch (_) { cv.replaceWith(h("img", { class: "gimg", src: T[S.sel], alt: petName(S.sel) })); }
   }
@@ -1291,8 +1337,77 @@
     put(G.say, h("button", { class: "qr", on: { click: () => { const a = new Audio(url); a.preservesPitch = false; a.mozPreservesPitch = false; a.webkitPreservesPitch = false; a.playbackRate = 1.6;
       a.onended = () => URL.revokeObjectURL(url); a.play().then(() => anim("falar", 2500)).catch(() => {}); sayG("…"); } } }, "🔊 Toque para ouvir"));
   }
+  /* Mundo real no jardim: a câmera de trás vira o fundo e o surucuá fica parado no lugar
+     enquanto a pessoa mexe o celular (bússola/giroscópio). A imagem da câmera não sai do aparelho. */
+  async function toggleGardenAR(e) {
+    if (!G || !G.r) return;
+    const btn = e && e.currentTarget;
+    if (G.ar) return stopGardenAR();
+    if (S.pets[S.sel].away) return toast("Ele foi passear. Busque no mapa!");
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return toast("Este navegador não abre a câmera");
+    let st;
+    try { st = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: "environment" } }, audio: false }); G.facing = "environment"; }
+    catch (_) { return toast("Sem acesso à câmera. Libere a câmera para ver no mundo real."); }
+    if (!G) { st.getTracks().forEach(t => t.stop()); return; }
+    const vid = h("video", { class: "gvid", "aria-hidden": "true" }); vid.muted = true; vid.playsInline = true; vid.setAttribute("playsinline", ""); vid.autoplay = true; vid.srcObject = st;
+    G.garden.prepend(vid); vid.play().catch(() => {});
+    G.garden.classList.add("real"); G.ground.visible = false; G.tree.visible = false;
+    const cam = G.cam, pet = G.pet;
+    G.ar = { st, vid, btn, y0: -.75, cam0: cam.position.clone(), q0: cam.quaternion.clone(), pos0: pet.position.clone(), base0: G.base, controls: null };
+    cam.position.set(0, 0, 0); cam.rotation.set(0, 0, 0); pet.position.set(0, -.75, -4.5); G.base = 0;
+    if (btn) { btn.setAttribute("aria-pressed", "true"); put(btn, icon("garden"), "Jardim"); }
+    sayG("Tô aqui no seu mundo! Mexe o celular que eu fico no lugar.");
+    try {
+      if (window.LocAR && LocAR.DeviceOrientationControls) {
+        const c = new LocAR.DeviceOrientationControls(cam, { enablePermissionDialog: true, preferConfirmDialog: true });
+        c.on("deviceorientationgranted", ev => {
+          ev.target.connect();
+          /* põe o surucuá na frente de para onde o celular aponta agora */
+          setTimeout(() => { if (!G || !G.ar) return; c.update(); const f = new THREE.Vector3(); cam.getWorldDirection(f); f.y = 0;
+            if (f.lengthSq() < 1e-4) return; f.normalize(); pet.position.set(f.x * 4.5, -.75, f.z * 4.5); G.base = Math.atan2(-f.x, -f.z); }, 300);
+        });
+        c.on("deviceorientationerror", () => {});
+        c.init(); G.ar.controls = c;
+      }
+    } catch (_) {}
+  }
+  /* Troca entre a câmera de trás e a de selfie no mundo real do jardim. Na selfie o surucuá fica do seu lado na tela. */
+  async function flipGardenCam() {
+    if (!G || !G.ar) return;
+    const want = G.facing === "user" ? "environment" : "user";
+    let st;
+    try { st = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: want } }, audio: false }); }
+    catch (_) { return toast("Não deu para trocar de câmera neste aparelho"); }
+    if (!G || !G.ar) { st.getTracks().forEach(t => t.stop()); return; }
+    G.ar.st.getTracks().forEach(t => t.stop()); G.ar.st = st; G.ar.vid.srcObject = st; G.ar.vid.play().catch(() => {});
+    G.facing = want; G.ar.vid.classList.toggle("selfie", want === "user");
+    const fb = G.garden.querySelector(".gflip"); if (fb) fb.textContent = want === "user" ? "🔄 Câmera de trás" : "🔄 Selfie";
+    const cam = G.cam, pet = G.pet;
+    if (want === "user") {
+      try { if (G.ar.controls) G.ar.controls.disconnect(); } catch (_) {}
+      G.ar.paused = G.ar.controls; G.ar.controls = null;
+      cam.position.set(0, 0, 0); cam.rotation.set(0, 0, 0); pet.position.set(.5, -.75, -4.5); G.base = -.2;
+      sayG("Tira uma selfie comigo!");
+    } else {
+      cam.rotation.set(0, 0, 0); pet.position.set(0, -.75, -4.5); G.base = 0;
+      if (G.ar.paused) { try { G.ar.paused.connect(); } catch (_) {} G.ar.controls = G.ar.paused; G.ar.paused = null; }
+      sayG("Tô aqui no seu mundo! Mexe o celular que eu fico no lugar.");
+    }
+  }
+  function stopGardenAR() {
+    if (!G || !G.ar) return;
+    const a = G.ar; G.ar = null;
+    try { if (a.controls) a.controls.disconnect(); if (a.paused) a.paused.disconnect(); } catch (_) {}
+    a.st.getTracks().forEach(t => t.stop()); a.vid.remove();
+    G.garden.classList.remove("real"); G.ground.visible = true; G.tree.visible = true; G.facing = null;
+    G.cam.position.copy(a.cam0); G.cam.quaternion.copy(a.q0); G.pet.position.copy(a.pos0); G.base = a.base0;
+    if (a.btn) { a.btn.setAttribute("aria-pressed", "false"); put(a.btn, icon("cam"), "Mundo real"); }
+    const fb = G.garden.querySelector(".gflip"); if (fb) fb.textContent = "🔄 Selfie";
+    sayG(mood(S.sel));
+  }
   function stopGarden() {
     if (!G) return;
+    stopGardenAR();
     if (G.raf) cancelAnimationFrame(G.raf);
     if (G.careTimer) clearInterval(G.careTimer);
     if (G.r) { G.r.dispose(); G.r.forceContextLoss && G.r.forceContextLoss(); }
@@ -1305,6 +1420,21 @@
   function sing(pet) {
     Pets.play(pet, "canto");
     try { song = song || new Audio("assets/audio/canto.mp3"); song.currentTime = 0; song.play().catch(() => {}); } catch (_) {}
+  }
+  /* O toque acertou o surucuá? Compara com o retângulo do pássaro na tela (com uma folga para o dedo). */
+  function petHit(pet, cam, ndc) {
+    const body = pet.children[0]; if (!body) return false;
+    const b = new THREE.Box3().setFromObject(body); if (b.isEmpty()) return false;
+    let x0 = 1, x1 = -1, y0 = 1, y1 = -1; const v = new THREE.Vector3();
+    for (let i = 0; i < 8; i++) { v.set(i & 1 ? b.max.x : b.min.x, i & 2 ? b.max.y : b.min.y, i & 4 ? b.max.z : b.min.z).project(cam);
+      x0 = Math.min(x0, v.x); x1 = Math.max(x1, v.x); y0 = Math.min(y0, v.y); y1 = Math.max(y1, v.y); }
+    const px = (x1 - x0) * .1, py = (y1 - y0) * .05;
+    return ndc.x >= x0 - px && ndc.x <= x1 + px && ndc.y >= y0 - py && ndc.y <= y1 + py;
+  }
+  function hearts(x, y) {
+    for (let i = 0; i < 4; i++) { const e = h("span", { class: "heartfx", "aria-hidden": "true", text: "❤" });
+      e.style.left = (x + (i - 1.5) * 16) + "px"; e.style.top = y + "px"; e.style.animationDelay = i * 80 + "ms";
+      document.body.append(e); setTimeout(() => e.remove(), 1300); }
   }
   function care(k) {
     const p = S.pets[S.sel]; if (p.away) return toast("Ele foi passear. Busque no mapa!");

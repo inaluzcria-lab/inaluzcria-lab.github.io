@@ -335,3 +335,18 @@ button.gchip{border:0;cursor:pointer;position:relative;font:inherit;font-weight:
 .flyfruit{position:fixed;z-index:60;pointer-events:none;transform:translate(-50%,-50%);margin:0}
 .flyfruit.back{transition:opacity .25s;opacity:0}
 .traynote{font-size:.68rem;color:#6b6b6b;margin:.3rem 0 0;line-height:1.3}
+/* ---- jardim no mundo real (câmera) ---- */
+.garden.real{background:#000}
+.gvid{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;z-index:0}
+.garden .gcv{z-index:1}
+.garden.real .gtop,.garden.real .gbar{z-index:3}
+.heartfx{position:fixed;z-index:60;pointer-events:none;color:#e6457a;font-size:1.4rem;transform:translate(-50%,-50%);animation:heartup 1.1s ease-out forwards;opacity:0}
+@keyframes heartup{0%{opacity:0;transform:translate(-50%,-50%) scale(.6)}15%{opacity:1}100%{opacity:0;transform:translate(-50%,-260%) scale(1.2)}}
+.gbar button[aria-pressed="true"]{background:var(--forest);color:#fff}
+.gbar button[aria-pressed="true"] svg{color:#fff}
+/* ---- selfie / câmera de trás ---- */
+#vid.selfie,.gvid.selfie{transform:scaleX(-1)}
+#camflip{flex:none;font-size:1.1rem;padding:.35rem .7rem}
+#v-cam.tagmode #camflip,#v-cam.seek #camflip{display:none}
+.gflip{display:none}
+.garden.real .gflip{display:inline-block}
