@@ -355,3 +355,13 @@ button.gchip{border:0;cursor:pointer;position:relative;font:inherit;font-weight:
 .rfx.heart{color:#e6457a;font-size:1.35rem}
 .rfx.note{color:#1f4a2e;font-weight:700;font-size:1.2rem}
 @keyframes rfxup{0%{opacity:0;transform:translate(0,-50%) scale(.6)}18%{opacity:1;transform:translate(0,-50%) scale(1)}70%{opacity:1;transform:translate(3px,-120%) scale(1)}100%{opacity:0;transform:translate(6px,-180%) scale(1)}}
+/* ---- atalho "Tenho uma loja" ---- */
+.storecta{display:flex;align-items:center;gap:.7rem;width:100%;border:1.5px solid #e4dcc6;cursor:pointer;font:inherit;color:inherit;margin-top:.6rem}
+.storecta small{color:var(--mute)}
+.storeico{font-size:1.6rem}
+/* ---- câmera: sem zoom/rolagem da página; balão de fala do pet ---- */
+#v-cam,#v-cam canvas,.tagbox{touch-action:none}
+.petbubble{position:absolute;z-index:4;max-width:12rem;padding:.45rem .7rem;border-radius:1rem 1rem 1rem .2rem;background:#fff;color:#1f2a1f;font-weight:700;font-size:.9rem;line-height:1.25;box-shadow:0 4px 12px rgba(0,0,0,.25);pointer-events:none;transform:translateY(-100%);opacity:0;transition:opacity .2s;visibility:hidden}
+.petbubble.on{opacity:1}
+.petbubble.left{transform:translate(-100%,-100%);border-radius:1rem 1rem .2rem 1rem}
+.onb .onbback{position:absolute;top:calc(.8rem + env(safe-area-inset-top));left:1rem}

@@ -98,14 +98,69 @@ O `assets/tag.mind` reconhece três alvos: 0 = a mandala impressa (deitada no ba
 ## Ligar o Firebase (gratuito, plano Spark)
 
 1. Crie um projeto no [console do Firebase](https://console.firebase.google.com/).
-2. **Authentication → Sign-in method:** ative só **Anônimo**.
+2. **Authentication → Sign-in method:** ative **Anônimo** (para jogar) e **Google** (só é pedido na hora de publicar).
 3. **Firestore Database:** crie em modo produção, na região `southamerica-east1` (São Paulo).
 4. Publique as regras deste projeto: copie `firestore.rules` em Firestore → Regras, ou rode `firebase deploy --only firestore:rules`.
 5. Crie o documento `stats/city` com o campo `photos` (número) = `0`.
 6. **Configurações do projeto → Seus apps → Web:** copie o objeto de configuração para `firebase:` em `config.js`.
 7. **Authentication → Settings → Authorized domains:** deixe só o seu domínio (ex.: `seuusuario.github.io`).
+8. Crie o documento `config/public` com o campo `feedOpen` (booleano) = `false`. Ele só vira `true` quando a moderação estiver pronta (ver abaixo).
 
 A `apiKey` do Firebase não é segredo: ela só identifica o projeto. Quem protege os dados são as regras do `firestore.rules`.
+
+## Versão pública: o que está fechado e por quê
+
+Esta versão deixa todo mundo jogar sem conta e mantém fechado o que depende de verificação de idade ou de moderação.
+
+| Função | Estado | O que falta para abrir |
+| --- | --- | --- |
+| Jogar (jardim, missões, acessórios, mapa, mundo real) | Aberto, sem conta | — |
+| Publicar post ou marcar lugar | **Fechado** para todos | Verificação de idade confiável (ver abaixo) |
+| Feed público (ver posts de outras pessoas) | **Fechado**: cada um vê só os seus | Responsável e canal de moderação, e então `config/public.feedOpen = true` |
+| Caixinha de Natal (roleta) | **Desativada** | Abertura e prêmio em backend, com verificação de 18+ |
+| Apagar meus dados | Aberto | Canal sem login com contato real (ver Privacidade) |
+
+### Publicar: conta Google + maioridade verificada
+
+- O app pede o login Google só quando a pessoa toca em **Publicar no feed** ou **Marcar um lugar**. Cancelar não muda nada no progresso local.
+- Conta anônima é **vinculada** ao Google (`linkWithPopup`): o UID continua o mesmo e os posts antigos continuam da pessoa. Se a conta Google já pertencer a outro UID, o app explica o conflito e só troca de conta se a pessoa escolher. Nada é mesclado nem apagado; o perfil anônimo anterior continua no servidor.
+- As regras (`canPublish()`) exigem conta Google **e** a claim `ageVerified == true` no token. Essa claim só pode ser gravada por backend confiável (Admin SDK, `setCustomUserClaims(uid, { ageVerified: true })`) depois de uma verificação de idade real. Login Google, e-mail confirmado ou data digitada pela pessoa **não** liberam. Sem essa integração, ninguém publica.
+- Quando houver um serviço de verificação, guarde só o resultado mínimo (a claim). Não colete CPF, data de nascimento nem documento no app.
+- O contador `stats/city` só sobe junto com um post autorizado criado no mesmo lote (`users.lastPostId` aponta para um post que não existia antes).
+
+### Posts: o que é público e o que é privado
+
+- Post novo (`posts/{id}`, campo `v: 2`): apelido, missão, XP, km, tempo, lugares e clube. **Sem** dono, foto, trajeto ou coordenadas.
+- Parte privada (`posts_private/{id}`): dono, foto reduzida e trajeto resumido. Só o dono lê e apaga.
+- Apagar o próprio post continua permitido mesmo para quem não pode mais publicar.
+- **Posts antigos** (antes da v2) têm `uid`, foto e trajeto no documento público. As regras novas deixam esses posts visíveis **só para o dono**, mesmo com o feed aberto. Migração necessária antes de mostrá-los publicamente (script de admin, não automático): para cada post sem `v`, criar `posts_private/{id}` com `uid`, `photo` e `route`; regravar `posts/{id}` sem esses campos e com `v: 2`. Nenhum post antigo é apagado.
+- **Lugares marcados** (`places`) continuam com leitura pública (o mapa precisa deles) e os antigos têm `uid` no documento. Marcar lugar agora exige `canPublish()`. Pendente: migrar o `uid` dos lugares para uma parte privada, como nos posts.
+
+### Moderação (antes de abrir o feed)
+
+- Denúncia: botão ⋯ em cada post → coleção `reports` (só criação; ninguém lê pelo app).
+- Revisão: a equipe abre Firestore → `reports`, confere o post (`posts/{postId}`) e, se for o caso, apaga `posts/{id}`, `posts_private/{id}` e os aplausos `posts/{id}/claps`.
+- **Pendente:** nome do responsável pela moderação, prazo de resposta e um canal real. Enquanto isso não existir, mantenha `feedOpen = false`.
+
+### Caixinha de Natal
+
+Desativada em `config.js` (`box: { enabled: false }`): o botão saiu do topo, a caixinha não abre, não concede prêmio e nenhuma ação gera caixinha nova (missão, sequência de dias, convite). Prêmios já ganhos (como o gorro dourado) e o saldo antigo ficam guardados. Para voltar, a abertura e o sorteio precisam rodar em backend com verificação de 18+; com idade desconhecida ou menor de 18, a roleta fica oculta.
+
+### Privacidade e exclusão
+
+- **Apagar meus dados** apaga primeiro no servidor, nesta ordem: aplausos dados por este aparelho, posts (com os aplausos neles e a parte privada), lugares marcados (com as visitas), pedidos de impressão, perfil e conta. Só depois limpa o aparelho. Se uma etapa falhar, o app mostra o que já foi apagado, mantém o jogo no aparelho e deixa tentar de novo (repetir é seguro).
+- **Não** sai pelo botão (atendimento manual pela equipe, no console): denúncias enviadas (`reports`), pedidos "Este lugar é meu?" (`claims`), contatos e missões de loja (`leads`, `storeMissions`), confirmações de visita em lugares de outras pessoas, e aplausos dados por outro aparelho.
+- **Pendente:** canal de pedido de exclusão sem login (para quem perdeu o celular). Coloque um contato real e confirmado em `config.js › privacy.contact`; enquanto for `null`, o app diz que o canal está em definição. Definir também: responsável, prazo de atendimento e por quanto tempo cada dado é guardado.
+- Estes ajustes são técnicos e não garantem, sozinhos, conformidade com a LGPD ou o ECA Digital.
+
+### Testes das regras (Firebase Emulator)
+
+`tests/rules.test.mjs` cobre: visitante, conta anônima e Google sem idade não publicam; Google + `ageVerified` publica; contador não sobe sem post; post público com foto/uid é recusado; feed fechado e aberto; posts antigos só para o dono; aplausos; apagar post, aplausos e perfil; marcar lugar sem permissão. Para rodar (Node 18+ e Java 11+):
+
+```
+npm i -D firebase-tools @firebase/rules-unit-testing firebase
+npx firebase emulators:exec --only firestore --project demo-expedicoes "node tests/rules.test.mjs"
+```
 
 ## Segurança
 

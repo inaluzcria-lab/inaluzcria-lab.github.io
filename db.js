@@ -4,8 +4,11 @@
    - Com Firebase: login anônimo + Firestore. As regras em firestore.rules
      validam cada gravação no servidor; o app nunca confia só no cliente.
    Privacidade: câmera, microfone e localização bruta ficam no aparelho.
-   Só vai para o feed o que a pessoa posta: apelido, foto reduzida, XP, km,
-   e o trajeto resumido sem os primeiros e últimos metros.
+   Versão pública: jogar não exige conta. Publicar (posts e lugares) exige conta Google
+   E maioridade verificada por fonte confiável (claim "ageVerified" gravada por backend;
+   o app nunca grava isso). Sem essa integração, publicar fica bloqueado aqui e nas regras.
+   Post público (posts/{id}, v: 2): só apelido, missão, XP, km, tempo e lugares.
+   Dono, foto e trajeto ficam em posts_private/{id}, que só o dono lê.
    ========================================================= */
 (function () {
   "use strict";
@@ -41,6 +44,8 @@
   const fv = () => firebase.firestore.FieldValue;
 
   const DB = { mode: "demo", uid: null, fs: null, LS, cleanNick, cleanName, randId };
+  const user = () => (DB.mode === "firebase" && firebase.auth().currentUser) || null;
+  const hasGoogle = u => !!u && !u.isAnonymous && u.providerData.some(p => p && p.providerId === "google.com");
 
   DB.init = async function () {
     DB.uid = LS.get("uid", null) || ("local" + randId(10));
@@ -80,47 +85,108 @@
     return o;
   }
 
+  /* ---------- conta e permissão para publicar ---------- */
+  /* Pode publicar? Só com Google + claim ageVerified (gravada por backend confiável, nunca pelo app). */
+  DB.publishStatus = async function () {
+    if (DB.mode !== "firebase") return { mode: DB.mode, google: false, verified: false, ok: false, reason: "offline" };
+    const u = user(), google = hasGoogle(u);
+    let verified = false;
+    if (google) { try { const t = await u.getIdTokenResult(true); verified = t.claims.ageVerified === true; } catch (_) {} }
+    return { mode: DB.mode, google, verified, ok: google && verified, reason: !google ? "google" : !verified ? "age" : null };
+  };
+  /* Entra com Google só quando a pessoa tenta publicar. Conta anônima: vincula (mesmo UID, mantém os posts).
+     Resultado: { ok } | { cancelled } | { conflict, credential, email } | { error } */
+  DB.linkGoogle = async function () {
+    if (DB.mode !== "firebase") return { error: "offline" };
+    const provider = new firebase.auth.GoogleAuthProvider(); provider.setCustomParameters({ prompt: "select_account" });
+    const u = user();
+    try {
+      if (u && u.isAnonymous) await u.linkWithPopup(provider);
+      else if (!hasGoogle(u)) await firebase.auth().signInWithPopup(provider);
+      DB.uid = user().uid; return { ok: true };
+    } catch (e) {
+      const code = e && e.code || "";
+      if (["auth/popup-closed-by-user", "auth/cancelled-popup-request", "auth/user-cancelled"].includes(code)) return { cancelled: true };
+      if (code === "auth/credential-already-in-use" || code === "auth/email-already-in-use")
+        return { conflict: true, credential: firebase.auth.GoogleAuthProvider.credentialFromError ? firebase.auth.GoogleAuthProvider.credentialFromError(e) : e.credential, email: (e.customData && e.customData.email) || e.email || "" };
+      if (code === "auth/popup-blocked") return { error: "popup" };
+      return { error: code || "erro" };
+    }
+  };
+  /* Conflito: a conta Google já pertence a outro UID. Só troca de conta se a pessoa escolher.
+     Nada é mesclado nem apagado: o perfil anônimo anterior continua existindo no servidor. */
+  DB.switchToGoogle = async function (credential) {
+    if (DB.mode !== "firebase" || !credential) return { error: "invalid" };
+    try { const r = await firebase.auth().signInWithCredential(credential); DB.uid = r.user.uid; return { ok: true }; }
+    catch (e) { return { error: (e && e.code) || "erro" }; }
+  };
+  DB.account = function () { const u = user(); return { mode: DB.mode, anonymous: !u || u.isAnonymous, google: hasGoogle(u) }; };
+  /* O feed público só abre quando a equipe grava config/public { feedOpen: true } (moderação pronta). */
+  DB.feedOpen = async function () {
+    if (DB.mode !== "firebase") return false;
+    try { const d = await DB.fs.doc("config/public").get(); return d.exists && d.data().feedOpen === true; } catch (_) { return false; }
+  };
+
   DB.addPost = async function (p) {
+    const st = await DB.publishStatus();
+    if (!st.ok) throw new Error("blocked");
     const last = LS.get("lastPost", 0);
     if (Date.now() - last < MIN_GAP_MS) throw new Error("rate");
     const o = cleanPost(p);
     LS.set("lastPost", Date.now());
-    if (DB.mode === "firebase") {
-      const ts = fv().serverTimestamp();
-      const userRef = DB.fs.doc("users/" + DB.uid), postRef = DB.fs.collection("posts").doc();
-      const commit = async withStats => {
-        const b = DB.fs.batch();
-        b.set(userRef, { nick: o.nick, lastPostAt: ts }, { merge: true });
-        b.set(postRef, Object.assign({ uid: DB.uid, createdAt: ts }, o));
-        if (withStats) b.update(DB.fs.doc("stats/city"), { photos: fv().increment(1) });
-        await b.commit();
-      };
-      try { await commit(true); } catch (_) { await commit(false); }
-      return Object.assign({ id: postRef.id, uid: DB.uid, createdAt: Date.now() }, o);
-    }
-    const post = Object.assign({ id: "p" + Date.now(), uid: DB.uid, createdAt: Date.now() }, o);
-    let all = [post].concat(LS.get("posts", [])).slice(0, 15);
-    while (!LS.set("posts", all) && all.length > 1) all = all.slice(0, -1); // espaço do aparelho
-    LS.set("cityPhotos", LS.get("cityPhotos", 0) + 1);
-    return post;
+    const ts = fv().serverTimestamp();
+    const userRef = DB.fs.doc("users/" + DB.uid), postRef = DB.fs.collection("posts").doc(), privRef = DB.fs.doc("posts_private/" + postRef.id);
+    const pub = Object.assign({}, o); delete pub.photo; delete pub.route;
+    const priv = { uid: DB.uid, createdAt: ts }; if (o.photo) priv.photo = o.photo; if (o.route) priv.route = o.route;
+    const commit = async withStats => {
+      const b = DB.fs.batch();
+      b.set(userRef, { nick: o.nick, lastPostAt: ts, lastPostId: postRef.id }, { merge: true });
+      b.set(postRef, Object.assign({ v: 2, createdAt: ts }, pub));
+      b.set(privRef, priv);
+      if (withStats) b.update(DB.fs.doc("stats/city"), { photos: fv().increment(1) });
+      await b.commit();
+    };
+    try { await commit(true); } catch (_) { await commit(false); }
+    return Object.assign({ id: postRef.id, uid: DB.uid, mine: true, createdAt: Date.now() }, o);
   };
 
-  function readPost(id, x) {
-    return { id, uid: x.uid, kind: KINDS.includes(x.kind) ? x.kind : "mission", nick: cleanNick(x.nick), missionId: SLUG.test(x.missionId || "") ? x.missionId : null,
+  function readPost(id, x, priv) {
+    priv = priv || {};
+    const photo = priv.photo || x.photo, route = priv.route || x.route;
+    return { id, mine: !!priv.uid || (!!x.uid && x.uid === DB.uid), uid: priv.uid || x.uid || null, kind: KINDS.includes(x.kind) ? x.kind : "mission", nick: cleanNick(x.nick), missionId: SLUG.test(x.missionId || "") ? x.missionId : null,
       missions: Array.isArray(x.missions) ? x.missions.filter(v => SLUG.test(v)) : [], title: str(x.title, 60), pet: x.pet, pets: Array.isArray(x.pets) ? x.pets.filter(v => SLUG.test(v)) : [],
       xp: x.xp | 0, km: num(x.km, 0, 100), mins: x.mins | 0, places: x.places | 0, claps: x.claps | 0,
-      photo: typeof x.photo === "string" && PHOTO.test(x.photo) ? x.photo : null, route: Array.isArray(x.route) ? x.route.filter(v => typeof v === "number") : null,
+      photo: typeof photo === "string" && PHOTO.test(photo) ? photo : null, route: Array.isArray(route) ? route.filter(v => typeof v === "number") : null,
       club: CLUB.test(x.club || "") ? x.club : null, clubName: str(x.clubName, 24), createdAt: toMs(x.createdAt) };
   }
+  /* Meus posts (novos e antigos), com foto e trajeto que só eu posso ler. */
+  async function myPosts() {
+    const out = new Map();
+    const ps = await DB.fs.collection("posts_private").where("uid", "==", DB.uid).limit(60).get();
+    for (const d of ps.docs) { try { const pd = await DB.fs.doc("posts/" + d.id).get(); if (pd.exists) out.set(d.id, readPost(d.id, pd.data(), d.data())); } catch (_) {} }
+    try { const old = await DB.fs.collection("posts").where("uid", "==", DB.uid).limit(60).get(); old.docs.forEach(d => out.set(d.id, readPost(d.id, d.data()))); } catch (_) {}
+    return [...out.values()].sort((a, b) => b.createdAt - a.createdAt);
+  }
+  /* Feed fechado: só os meus. Feed aberto: posts públicos v2 (sem dono, foto e trajeto) + os meus completos. */
   DB.listPosts = async function (n) {
     if (DB.mode === "firebase") {
-      const s = await DB.fs.collection("posts").orderBy("createdAt", "desc").limit(n || 60).get();
-      return s.docs.map(d => readPost(d.id, d.data()));
+      const mine = await myPosts().catch(() => []);
+      if (!(await DB.feedOpen())) return mine;
+      const s = await DB.fs.collection("posts").where("v", "==", 2).orderBy("createdAt", "desc").limit(n || 60).get();
+      const byId = new Map(mine.map(p => [p.id, p]));
+      return s.docs.map(d => byId.get(d.id) || readPost(d.id, d.data())).concat(mine.filter(p => !s.docs.some(d => d.id === p.id)));
     }
-    return LS.get("posts", []).map(x => readPost(x.id, x));
+    return LS.get("posts", []).map(x => Object.assign(readPost(x.id, x), { mine: true }));
   };
+  /* Apaga um post meu: aplausos dele, a parte privada e a pública. Sempre permitido ao dono. */
   DB.deletePost = async function (id) {
-    if (DB.mode === "firebase") { if (DOCID.test(id)) await DB.fs.doc("posts/" + id).delete(); return; }
+    if (DB.mode === "firebase") {
+      if (!DOCID.test(id)) return;
+      const ref = DB.fs.doc("posts/" + id);
+      try { const cs = await ref.collection("claps").get(); for (const c of cs.docs) await c.ref.delete(); } catch (_) {}
+      const b = DB.fs.batch(); b.delete(DB.fs.doc("posts_private/" + id)); b.delete(ref); await b.commit();
+      return;
+    }
     LS.set("posts", LS.get("posts", []).filter(p => p.id !== id));
   };
   DB.report = async function (postId, reason) {
@@ -166,6 +232,7 @@
   };
   DB.addPlace = async function ({ nick, name, type, lat, lng, photo }) {
     const C = window.CONFIG;
+    if (DB.mode === "firebase" && !(await DB.publishStatus()).ok) throw new Error("blocked");
     name = cleanName(name, 40);
     if (name.length < 2 || !C.placeTypes[type]) throw new Error("invalid");
     const o = { nick: cleanNick(nick) || "Jogador", name, type, lat: Math.round(num(lat, -90, 90) * 1e4) / 1e4, lng: Math.round(num(lng, -180, 180) * 1e4) / 1e4, confirms: 1 };
@@ -214,7 +281,7 @@
   /* Missão criada pela loja: entra como "pendente" e só aparece depois da aprovação da equipe. */
   DB.addStoreMission = async function ({ store, model, subject, gift, pet }) {
     const models = ["foto", "visitas", "sabado", "dupla"];
-    const o = { store: str(store, 60), model: models.includes(model) ? model : "foto", subject: str(subject, 60), gift: str(gift, 60), pet: SLUG.test(pet) ? pet : "sabia", status: "pending" };
+    const o = { store: str(store, 60), model: models.includes(model) ? model : "foto", subject: str(subject, 60), gift: str(gift, 60), pet: SLUG.test(pet) ? pet : "surucua", status: "pending" };
     if (!o.store || !o.subject) throw new Error("invalid");
     if (DB.mode === "firebase") await DB.fs.collection("storeMissions").add(Object.assign({ uid: DB.uid, createdAt: fv().serverTimestamp() }, o));
     else { const all = LS.get("storeMissions", []); all.unshift(Object.assign({ createdAt: Date.now() }, o)); LS.set("storeMissions", all.slice(0, 20)); }
@@ -243,19 +310,45 @@
     else { const all = LS.get("leads", []); all.unshift({ store, contact, createdAt: Date.now() }); LS.set("leads", all.slice(0, 20)); }
   };
 
-  /* LGPD: apagar tudo desta pessoa, no servidor e no aparelho. */
-  DB.deleteMine = async function () {
+  /* Apagar meus dados. Primeiro o servidor; o aparelho só é limpo depois que TUDO no servidor deu certo.
+     Cada etapa pode ser repetida com segurança (apagar o que já sumiu não dá erro).
+     opts.clapped: ids de posts que eu aplaudi (para tirar meus aplausos).
+     Retorna { ok: true } ou { ok: false, done: [...etapas], failed: "etapa", code }. */
+  DB.deleteMine = async function (opts) {
+    opts = opts || {};
+    const done = [];
+    const step = async (name, fn) => { await fn(); done.push(name); };
     if (DB.mode === "firebase") {
       try {
-        for (const col of ["posts", "orders", "places"]) {
-          const s = await DB.fs.collection(col).where("uid", "==", DB.uid).get();
-          for (const d of s.docs) await d.ref.delete();
-        }
-        await DB.fs.doc("users/" + DB.uid).delete();
-        if (firebase.auth().currentUser) await firebase.auth().currentUser.delete();
-      } catch (e) { console.warn("Falha ao apagar no servidor", e && e.message); throw e; }
+        await step("aplausos", async () => {
+          for (const id of (opts.clapped || []).filter(x => DOCID.test(x))) {
+            const pr = DB.fs.doc("posts/" + id), cr = pr.collection("claps").doc(DB.uid);
+            try { if (!(await cr.get()).exists) continue; } catch (_) { continue; }
+            const b = DB.fs.batch(); b.update(pr, { claps: fv().increment(-1) }); b.delete(cr); await b.commit();
+          }
+        });
+        await step("posts", async () => { for (const p of await myPosts()) await DB.deletePost(p.id); });
+        await step("lugares", async () => {
+          const s = await DB.fs.collection("places").where("uid", "==", DB.uid).get();
+          for (const d of s.docs) { const vs = await d.ref.collection("visits").get(); for (const v of vs.docs) await v.ref.delete(); await d.ref.delete(); }
+        });
+        await step("pedidos", async () => { const s = await DB.fs.collection("orders").where("uid", "==", DB.uid).get(); for (const d of s.docs) await d.ref.delete(); });
+        await step("perfil", async () => { await DB.fs.doc("users/" + DB.uid).delete(); });
+        await step("conta", async () => {
+          const u = user(); if (!u) return;
+          try { await u.delete(); }
+          catch (e) {
+            if (e && e.code === "auth/requires-recent-login" && hasGoogle(u)) { await u.reauthenticateWithPopup(new firebase.auth.GoogleAuthProvider()); await u.delete(); }
+            else throw e;
+          }
+        });
+      } catch (e) {
+        console.warn("Exclusão incompleta", e && e.code);
+        return { ok: false, done, failed: ["aplausos", "posts", "lugares", "pedidos", "perfil", "conta"][done.length], code: (e && e.code) || "erro" };
+      }
     }
     LS.clear();
+    return { ok: true, done };
   };
 
   window.DB = DB;

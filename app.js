@@ -11,6 +11,10 @@
   const MISS = C.missions, SP = C.species, PETS = Object.keys(SP);
   const byId = id => MISS.find(m => m.id === id);
   const HOUR = 36e5;
+  /* Caixinha de Natal desativada nesta versão: não aparece, não abre, não concede prêmio e não gera novas.
+     Prêmios já ganhos e o saldo antigo (S.boxes) ficam guardados. Para voltar, a abertura precisa rodar em
+     backend com verificação de 18+ (ver README). */
+  const BOX = !!(C.box && C.box.enabled);
   const CARE_THRESHOLDS = Object.assign({ hunger: 40, love: 30, sleep: 30, joy: 30 }, C.careThresholds || {});
   const CARE_LEVELS = [
     { key: "hunger", label: "Fome", phrase: "Tá com fome", icon: "🍓", color: "#c8322f" },
@@ -107,7 +111,8 @@
       S.clapped = Array.isArray(S.clapped) ? S.clapped.slice(-300) : [];
     }
   }
-  const save = () => DB.LS.set("state", S);
+  let wiping = false; // depois de apagar tudo, nada mais é salvo (nem ao sair da página)
+  const save = () => { if (!wiping) DB.LS.set("state", S); };
 
   /* Pets como tamagotchi: as barras caem com o tempo; se esquecido por 48 h, o pet sai para passear. */
   function tickPets() {
@@ -126,7 +131,7 @@
     S.daily = { day: d, fed: 0, visit: 0, claps: 0, claimed: [] };
     const y = dayKey(new Date(Date.now() - 864e5));
     S.streak.n = S.streak.last === y ? S.streak.n + 1 : 1; S.streak.last = d;
-    if (S.streak.n > 1) { S.boxes++; setTimeout(() => toast("Voltou! +1 Caixinha de Natal"), 800); }
+    if (S.streak.n > 1 && BOX) { S.boxes++; setTimeout(() => toast("Voltou! +1 Caixinha de Natal"), 800); }
   }
   function addXp(n) { const before = level(S.xp); S.xp += n; if (level(S.xp) > before) setTimeout(() => toast("Subiu para o nível " + level(S.xp) + "!"), 900); }
 
@@ -158,10 +163,16 @@
       : h("button", { "aria-current": String(k === cur), class: k === "garden" && Object.keys(S.pets).some(needs) ? "hasdot" : "", on: { click: () => show(k) } }, icon(ic), l)));
   }
   function renderBox() {
-    put($("boxbtn"), icon("gift"), S.boxes > 0 ? h("span", { class: "badge", text: String(S.boxes) }) : null);
+    const bb = $("boxbtn"); if (!bb) return; bb.hidden = !BOX; if (!BOX) return;
+    put(bb, icon("gift"), S.boxes > 0 ? h("span", { class: "badge", text: String(S.boxes) }) : null);
   }
-  function show(k) {
+  let prevView = "feed";
+  /* Histórico do navegador: cada tela entra no histórico, então o voltar do app e o voltar nativo
+     (botão/gesto do celular) voltam um passo por vez. Na tela inicial, o voltar segue o padrão do navegador. */
+  function show(k, fromPop) {
     if (cur === "garden" && k !== "garden") stopGarden();
+    if (k !== cur) prevView = cur;
+    if (!fromPop && k !== cur && history.state && history.state.v) pushNav({ v: k });
     cur = k;
     for (const v of document.querySelectorAll(".view")) v.classList.toggle("on", v.id === "v-" + k);
     renderTabs(); renderBox();
@@ -170,8 +181,15 @@
   }
 
   /* ---------- sheet (folha de baixo) ---------- */
-  function openSheet(...kids) { put($("sheetbody"), h("div", { class: "grab" }), ...kids); $("sheet").classList.add("on"); }
-  function closeSheet() { $("sheet").classList.remove("on"); }
+  /* Folha de baixo e câmera ganham uma entrada no histórico: o voltar nativo fecha a folha/câmera
+     e a tela continua onde estava (inclusive na tela inicial). */
+  let guardOpen = false, pendingBack = false, navQueue = [];
+  const overlayOn = () => $("sheet").classList.contains("on") || $("v-cam").classList.contains("on");
+  function pushNav(st) { if (pendingBack) navQueue.push(st); else history.pushState(st, ""); }
+  function overlayOpened() { if (!guardOpen) { guardOpen = true; pushNav({ v: cur, guard: true }); } }
+  function overlayClosed() { if (guardOpen && !overlayOn()) { guardOpen = false; if (history.state && history.state.guard) { pendingBack = true; history.back(); } } }
+  function openSheet(...kids) { put($("sheetbody"), h("div", { class: "grab" }), ...kids); $("sheet").classList.add("on"); overlayOpened(); }
+  function closeSheet() { $("sheet").classList.remove("on"); overlayClosed(); }
   $("sheet").addEventListener("click", e => { if (e.target.id === "sheet") closeSheet(); });
   document.addEventListener("keydown", e => { if (e.key === "Escape") { closeSheet(); if ($("v-cam").classList.contains("on")) closeCam(); } });
 
@@ -196,13 +214,19 @@
         h("button", { class: "card passcard", on: { click: openPass } },
           h("b", { text: "Passe de Natal · missões de hoje" }),
           h("small", { text: doneTasks + " de " + C.daily.length + " feitas · nível " + level(S.xp) }),
-          h("div", { class: "meter lightmeter" }, h("span", { style: { width: (doneTasks / C.daily.length * 100) + "%" } })))) : null,
+          h("div", { class: "meter lightmeter" }, h("span", { style: { width: (doneTasks / C.daily.length * 100) + "%" } }))),
+        storeCta()) : null,
       list);
     DB.cityCount().then(n => { count.textContent = n.toLocaleString("pt-BR") + " de " + C.cityGoal.toLocaleString("pt-BR") + " fotos para acender"; meter.style.width = Math.min(100, n / C.cityGoal * 100) + "%"; });
     try { lastPosts = await DB.listPosts(100); } catch (_) { lastPosts = []; }
-    const hidden = DB.LS.get("hidden", []);
+    const hidden = DB.LS.get("hidden", []), open = await DB.feedOpen().catch(() => false);
     let posts = lastPosts.filter(p => !hidden.includes(p.id));
-    if (DB.mode === "demo" && posts.length < 3) posts = posts.concat(examplePosts());
+    if (!open) {
+      const note = h("div", { class: "card", style: { textAlign: "left" } }, h("b", { text: "O feed da cidade abre em breve" }),
+        h("p", { style: { margin: ".35rem 0 0", fontSize: ".85rem" }, text: "Por enquanto ninguém vê posts de outras pessoas. Suas fotos ficam no aparelho e você pode compartilhar nos Stories." + (posts.length ? " Abaixo estão só os seus posts, que você pode apagar." : "") }));
+      if (feedTab === "clubes") return put(list, note, clubsView(posts));
+      return put(list, note, posts.slice(0, 30).map(postCard));
+    }
     if (feedTab === "clubes") return put(list, clubsView(posts));
     put(list, posts.slice(0, 30).map(postCard),
       h("div", { class: "endfeed" }, h("b", { text: "Você viu tudo de hoje" }), h("button", { class: "btn alt", on: { click: () => show("garden") } }, "Bora cuidar do jardim")));
@@ -258,14 +282,17 @@
       h("div", { class: "petrow" }, pets.map(x => h("img", { src: T[x], alt: petName(x), title: petName(x) })), h("small", { text: pets.length + (pets.length === 1 ? " pet" : " pets") })),
       names.length ? h("p", { class: "demo", style: { textAlign: "left" }, text: "Lugares: " + names.join(", ") }) : null,
       p.route ? h("p", { class: "demo", style: { textAlign: "left" }, text: "O trajeto aparece sem o começo e o fim, para proteger quem postou." }) : null,
-      p.uid && p.uid === DB.uid && (p.km > 0 || p.route) ? h("button", { class: "btn red", style: { marginTop: ".6rem" }, on: { click: () => shareExp(p) } }, icon("share"), "Compartilhar expedição") : null);
+      p.local ? h("button", { class: "btn", style: { marginTop: ".6rem" }, on: { click: () => tryPublish(post0(p), () => closeSheet()) } }, "Publicar no feed") : null,
+      (p.mine || (p.uid && p.uid === DB.uid)) && (p.km > 0 || p.route) ? h("button", { class: "btn red", style: { marginTop: ".6rem" }, on: { click: () => shareExp(p) } }, icon("share"), "Compartilhar expedição") : null);
+  }
+  function post0(p) { const o = Object.assign({}, p); ["uid", "mine", "local", "createdAt", "claps", "id"].forEach(k => delete o[k]); return o;
   }
   function postMenu(p) {
-    const mine = p.uid && p.uid === DB.uid;
+    const mine = p.mine || (p.uid && p.uid === DB.uid);
     if (mine) return openSheet(h("h2", { text: "Seu post" }), h("button", { class: "btn red", on: { click: async () => {
       try { await DB.deletePost(p.id); closeSheet(); toast("Post apagado"); renderFeed(); } catch (_) { toast("Não deu para apagar agora"); } } } }, "Apagar post"));
     const why = [["pessoa", "Mostra alguém sem permissão"], ["ofensivo", "Ofensivo ou impróprio"], ["perigo", "Coloca alguém em risco"], ["outro", "Outro motivo"]];
-    openSheet(h("h2", { text: "Denunciar post" }), h("p", { class: "demo", style: { textAlign: "left" }, text: "O post some para você agora, e a equipe analisa." }),
+    openSheet(h("h2", { text: "Denunciar post" }), h("p", { class: "demo", style: { textAlign: "left" }, text: "O post some para você agora e a denúncia vai para a equipe, que revisa e retira o post se for o caso." }),
       why.map(([k, l]) => h("button", { class: "opt", on: { click: async () => { try { await DB.report(p.id, k); } catch (_) {} closeSheet(); toast("Obrigado. Vamos analisar."); renderFeed(); } } }, l)));
   }
   /* Desenha o trajeto (sem mapa de fundo, só a forma da rota). */
@@ -511,7 +538,7 @@
       h("div", { class: "dots" }, lightsAll.map(m => h("i", { class: S.done[m.id] === today ? "on" : "", title: m.name }))),
       h("small", { text: lightsDone + " de " + lightsAll.length + " luzes hoje" + (isNight() ? " · agora vale XP em dobro" : " · depois das " + C.nightFrom + "h vale o dobro") }));
     const placesBox = h("div", null, h("p", { class: "demo", text: "Carregando lugares…" }));
-    const lower = h("div", { class: "wrap" }, expCard(), route,
+    const lower = h("div", { class: "wrap" }, expCard(), route, storeCta(),
       h("div", { class: "sec" }, "Lugares marcados", h("small", { text: "pela galera" })),
       h("button", { class: "btn alt", style: { marginBottom: ".7rem" }, on: { click: markPlace } }, icon("map"), "Marcar um lugar"), placesBox);
     if (mapMode === "lista") put(v, top, h("div", { class: "wrap" }, MISS.map((m, i) => placeCard(m, i))), lower);
@@ -668,9 +695,8 @@
     if (!e.places.length && km < .1) { toast("Expedição curta demais: nada foi postado"); return renderMap(); }
     const post = { kind: "expedition", nick: S.nick, title: autoTitle(e), missions: e.missions, pet: e.pets[0] || S.sel, pets: e.pets.length ? e.pets : [S.sel],
       xp: e.xp, km, mins, places: e.places.length, photo: e.photo, route: privateRoute(e.pts), club: S.club, clubName: clubName() };
-    let saved = post;
-    try { saved = await DB.addPost(post); } catch (err) { if (err.message === "rate") { LS_wait(); try { saved = await DB.addPost(post); } catch (_) {} } }
-    renderMap(); postDetail(Object.assign({ uid: DB.uid, createdAt: Date.now(), claps: 0 }, saved));
+    draft = post;
+    renderMap(); postDetail(Object.assign({ uid: DB.uid, mine: true, local: true, createdAt: Date.now(), claps: 0 }, post));
   }
   function LS_wait() { DB.LS.set("lastPost", 0); }
   function companionSheet(cb, label) {
@@ -706,6 +732,7 @@
       navigator.geolocation.getCurrentPosition(p => ok(p.coords), no, { enableHighAccuracy: true, timeout: 15000, maximumAge: 10000 }); });
   }
   async function markPlace() {
+    if (!(await publishGate())) return;
     let pos;
     try { pos = await getPos(); } catch (_) { return toast("Ative a localização para marcar um lugar"); }
     if (pos.accuracy > 50) return toast("GPS fraco aqui. Tente num lugar aberto.");
@@ -806,7 +833,7 @@
     put($("chat"), h("div", { class: "bubble" },
       h("b", { style: { display: "flex", alignItems: "center", gap: ".35rem" } }, h("img", { src: T.surucua, alt: "", class: "bubav" }), C.guideName + ", seu guia"),
       m.tip, h("div", { class: "meta", text: new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }) })), speakBtn);
-    $("v-cam").classList.add("on");
+    $("v-cam").classList.add("on"); overlayOpened();
     drawFallback();
     startAR(m.pet);
     speak(m.tip);
@@ -842,18 +869,59 @@
     if (window.MindARThree) return Promise.resolve();
     return mindLoading || (mindLoading = new Promise((ok, no) => { const s = document.createElement("script"); s.src = "vendor/mindar.js"; s.onload = ok; s.onerror = no; document.head.appendChild(s); }));
   }
+  /* Gestos na câmera: pinça muda só a escala do pet (a página não dá zoom); toque curto = tocar no pet.
+     onScale(mult): multiplicador de 0,5 a 2. onTap(evento). onDrag(dx, dy): arraste com 1 dedo.
+     hit(evento) opcional: o toque/arraste só vale se começar em cima do pet. */
+  function petGestures(el, o) {
+    const pts = new Map(); let pinch = null, tap = null, mul = 1;
+    const dist = () => { const [a, b] = [...pts.values()]; return Math.hypot(a.x - b.x, a.y - b.y) || 1; };
+    el.addEventListener("pointerdown", e => {
+      pts.set(e.pointerId, { x: e.clientX, y: e.clientY }); try { el.setPointerCapture(e.pointerId); } catch (_) {}
+      if (pts.size === 2) { pinch = { d: dist(), mul }; tap = null; if (o.onDragEnd) o.onDragEnd(); }
+      else if (pts.size === 1) tap = { x: e.clientX, y: e.clientY, t: performance.now(), moved: false, on: o.hit ? !!o.hit(e) : true };
+    });
+    el.addEventListener("pointermove", e => {
+      if (!pts.has(e.pointerId)) return; const p0 = pts.get(e.pointerId); pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (pinch && pts.size === 2) { mul = Math.max(.5, Math.min(2, pinch.mul * dist() / pinch.d)); o.onScale(mul); return; }
+      if (tap) { if (Math.hypot(e.clientX - tap.x, e.clientY - tap.y) > 8) tap.moved = true; if (tap.moved && tap.on && o.onDrag) o.onDrag(e.clientX - p0.x, e.clientY - p0.y); }
+    });
+    const end = e => {
+      pts.delete(e.pointerId);
+      if (pts.size < 2) pinch = null;
+      if (tap && pts.size === 0) { if (!tap.moved && tap.on && performance.now() - tap.t < 400) o.onTap(e); tap = null; if (o.onDragEnd) o.onDragEnd(); }
+    };
+    el.addEventListener("pointerup", end); el.addEventListener("pointercancel", end);
+    ["gesturestart", "gesturechange"].forEach(t => el.addEventListener(t, e => e.preventDefault())); // Safari: sem zoom da página
+    return { get mul() { return mul; } };
+  }
+  /* Balão de fala perto do pet, só depois de um toque. Fica ao lado da cabeça, não pega toques e some sozinho. */
+  const TAG_LINES = ["♪ Escuta o meu canto! ♪", "Oi! Que bom te ver aqui!", "Tira uma foto comigo!", "Hum, que cheirinho bão!"];
+  function petBubble(holder, text) {
+    let b = holder.querySelector(".petbubble");
+    if (!b) { b = h("div", { class: "petbubble", "aria-live": "polite" }); holder.append(b); }
+    b.textContent = text; b.classList.add("on"); clearTimeout(b._t); b._t = setTimeout(() => b.classList.remove("on"), 3500);
+    return b;
+  }
+  function placeBubble(holder, pet, cam) {
+    const b = holder.querySelector(".petbubble.on"); if (!b || !pet.visible) { if (b) b.style.visibility = "hidden"; return; }
+    const v = Pets.head(pet); if (!v) return; v.project(cam);
+    const r = holder.getBoundingClientRect(), x = (v.x + 1) / 2 * r.width, y = (1 - v.y) / 2 * r.height;
+    const bw = b.offsetWidth || 160, right = x + 18 + bw <= r.width - 8 || x - 18 - bw < 8; // abre para o lado que cabe
+    b.style.visibility = v.z < 1 ? "visible" : "hidden";
+    b.style.left = (right ? x + 18 : x - 18) + "px"; b.style.top = Math.min(r.height - 220, Math.max(120, y - 10)) + "px";
+    b.classList.toggle("left", !right);
+  }
   async function startTag(m) {
     stopAR(); stopStream();
-    const vc = $("v-cam"); vc.classList.add("on", "tagmode");
+    const vc = $("v-cam"); vc.classList.add("on", "tagmode"); overlayOpened();
     $("camlabel").textContent = m.name + " · +" + m.xp + " XP";
     $("camxp").textContent = S.done[m.id] === dayKey() ? "Já valeu hoje" : "";
-    put($("chat"), h("div", { class: "bubble" }, h("b", { style: { display: "flex", alignItems: "center", gap: ".35rem" } }, h("img", { src: T.surucua, alt: "", class: "bubav" }), C.guideName + ", seu guia"),
-      "Procura a minha tag no balcão de " + m.partner + ", o letreiro \"É junto dos Bão\" ou a caneca do Cheirin Bão! Aponta a câmera que eu pouso lá."),
-      h("button", { class: "speak", on: { click: () => { stopTag(); openCam(m, true); } } }, "Estou sem a tag"));
+    /* A cena abre sem balão de texto: só o botão para seguir sem a tag. */
+    put($("chat"), h("button", { class: "speak", on: { click: () => { stopTag(); openCam(m, true); } } }, "Estou sem a tag"));
     $("camhint").textContent = "Carregando a câmera da tag…";
     $("fallback").style.display = "none"; $("arcv").style.display = "none";
     const box = h("div", { class: "tagbox" }); vc.prepend(box);
-    tag = { box, mt: null, pet: null, found: false, landed: false, m };
+    tag = { box, mt: null, pet: null, found: false, landed: false, m, mul: 1, yaw: 0, lostT: 0 };
     speak("Procura a minha tag no balcão ou o letreiro É junto dos Bão! Aponta a câmera que eu pouso lá.");
     try {
       await loadMind();
@@ -867,19 +935,36 @@
         { scale: .17, rx: 0, x: .08, y: -.17, msg: "O surucuá pousou no letreiro! Toque nele para ouvir o canto." },
         { scale: .32, rx: 0, x: .3, y: -.32, z: .2, msg: "O surucuá pousou na caneca! Toque nele para ouvir o canto." }];
       const pet = Pets.make("surucua", { eq: S.eq }); pet.visible = false; tag.pet = pet;
+      /* O pet é criado uma vez por sessão e nunca é recriado. Achar o alvo de novo não reinicia o pouso.
+         Perdas curtas de rastreamento (até 1,5 s) não escondem o pet, para ele não piscar. */
       SPOTS.forEach((sp, i) => {
         const anchor = mt.addAnchor(i);
         anchor.onTargetFound = () => { if (!tag) return;
-          pet.scale.setScalar(sp.scale); pet.rotation.set(sp.rx, 0, 0); pet.position.set(sp.x, sp.y, sp.z || 0); anchor.group.add(pet);
-          tag.found = true; tag.spot = i; pet.visible = true; $("camhint").textContent = sp.msg;
+          clearTimeout(tag.lostT);
+          if (tag.spot !== i || pet.parent !== anchor.group) {
+            pet.scale.setScalar(sp.scale * tag.mul); pet.rotation.set(sp.rx, tag.yaw, 0); pet.position.set(sp.x, sp.y, sp.z || 0); anchor.group.add(pet);
+          }
+          tag.found = true; tag.spot = i; tag.sp = sp; pet.visible = true; $("camhint").textContent = "";
           if (!tag.landed) { tag.landed = true; Pets.play(pet, "pouso"); } };
-        anchor.onTargetLost = () => { if (!tag || tag.spot !== i) return; tag.found = false; pet.visible = false; $("camhint").textContent = "Aponte de novo para a tag ou o letreiro."; };
+        anchor.onTargetLost = () => { if (!tag || tag.spot !== i) return;
+          clearTimeout(tag.lostT);
+          tag.lostT = setTimeout(() => { if (!tag || tag.spot !== i) return; tag.found = false; pet.visible = false; $("camhint").textContent = "Aponte de novo para a tag ou o letreiro."; }, 1500); };
       });
       await mt.start();
       if (!tag || tag.mt !== mt) { try { mt.stop(); } catch (_) {} return; }
       $("camhint").textContent = "Aponte a câmera para a tag do surucuá ou o letreiro neon.";
-      mt.renderer.setAnimationLoop(() => { Pets.tick(pet, performance.now()); mt.renderer.render(mt.scene, mt.camera); });
-      box.addEventListener("click", () => { if (tag && tag.found) sing(pet); });
+      mt.renderer.setAnimationLoop(() => { Pets.tick(pet, performance.now()); mt.renderer.render(mt.scene, mt.camera); placeBubble(box, pet, mt.camera); });
+      let line = 0;
+      /* Pinça: só o tamanho. Arraste horizontal com 1 dedo sobre o pássaro: gira no próprio eixo vertical
+         (os pés ficam no ponto de ancoragem). Toque curto no pássaro: canto + balão. Tamanho e giro ficam guardados. */
+      const ndc = new THREE.Vector2();
+      petGestures(box, {
+        hit: e => { if (!pet.visible) return false; const r = box.getBoundingClientRect();
+          ndc.set((e.clientX - r.left) / r.width * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1); return petHit(pet, mt.camera, ndc); },
+        onScale: k => { if (!tag) return; tag.mul = k; if (tag.sp) pet.scale.setScalar(tag.sp.scale * k); },
+        onDrag: dx => { if (!tag) return; tag.yaw += dx * .012; pet.rotation.y = tag.yaw; },
+        onTap: () => { if (!tag || !pet.visible) return; sing(pet); petBubble(box, TAG_LINES[line++ % TAG_LINES.length]); }
+      });
     } catch (_) {
       toast("A câmera da tag não abriu aqui. Seguindo sem a tag.");
       stopTag(); openCam(m, true);
@@ -899,7 +984,7 @@
   async function openSeek(m) {
     if (!window.LocAR || !window.THREE) return toast("Modo Procurar indisponível neste aparelho");
     closeSheet(); closeCam(); camM = m;
-    const vc = $("v-cam"); vc.classList.add("on", "seek");
+    const vc = $("v-cam"); vc.classList.add("on", "seek"); overlayOpened();
     $("camlabel").textContent = "Procurar · " + m.partner;
     $("camxp").textContent = "";
     const info = h("div", { class: "seekinfo", text: "Procurando o sinal do GPS…" });
@@ -967,7 +1052,7 @@
     } catch (_) { $("fallback").style.display = "block"; drawFallback(); }
   }
   function stopStream() { if (stream) stream.getTracks().forEach(t => t.stop()); stream = null; $("vid").srcObject = null; }
-  function closeCam() { stopTag(); stopSeek(); stopStream(); stopAR(); $("v-cam").classList.remove("on"); try { speechSynthesis.cancel(); } catch (_) {} }
+  function closeCam() { stopTag(); stopSeek(); stopStream(); stopAR(); $("v-cam").classList.remove("on"); try { speechSynthesis.cancel(); } catch (_) {} overlayClosed(); }
   function drawFallback() {
     const cv = $("fallback"), c = cv.getContext("2d"), W = cv.width, H = cv.height;
     if (bgImg) { cover(c, bgImg, W, H); return; }
@@ -1003,8 +1088,10 @@
         r.render(sc, camera);
       };
       ar.y0 = -.6; ar.raf = requestAnimationFrame(loop);
+      const base = pet.scale.x;
+      petGestures(cv, { onScale: k => pet.scale.setScalar(base * k), onTap: () => {} });
       let drag = null;
-      cv.onpointerdown = e => { drag = { x: e.clientX, y: e.clientY, px: pet.position.x, py: ar.y0, moved: false }; cv.setPointerCapture(e.pointerId); };
+      cv.onpointerdown = e => { if (!e.isPrimary) { drag = null; return; } drag = { x: e.clientX, y: e.clientY, px: pet.position.x, py: ar.y0, moved: false }; };
       cv.onpointermove = e => { if (!drag) return; const k = 6 / cv.clientHeight; pet.position.x = Math.max(-1.8, Math.min(1.8, drag.px + (e.clientX - drag.x) * k)); ar.y0 = Math.max(-1.6, Math.min(1.2, drag.py - (e.clientY - drag.y) * k)); drag.moved = drag.moved || Math.abs(e.clientX - drag.x) + Math.abs(e.clientY - drag.y) > 8; };
       cv.onpointerup = () => { if (drag && !drag.moved) sing(pet); drag = null; };
       cv.style.display = "block";
@@ -1031,7 +1118,7 @@
     catch (_) { toast("Não deu para abrir essa foto"); }
   });
   $("camshoot").addEventListener("click", shoot);
-  $("boxbtn").addEventListener("click", openBox);
+  if (BOX && $("boxbtn")) $("boxbtn").addEventListener("click", openBox);
 
   /* Valida a presença no lugar só quando a missão tem coordenadas. A posição não é salva nem enviada. */
   function nearEnough(m) {
@@ -1077,7 +1164,7 @@
       xp = m.xp * (m.lights && isNight() ? 2 : 1);
       if (S.sel === "sabia" && new Date().getHours() < 9) xp += 10;
       if (S.sel === "surucua" && m.ptype === "mata") xp += 20;
-      addXp(xp); S.done[m.id] = dayKey(); S.ever[m.id] = true; S.photos++; S.boxes++; S.daily.visit++;
+      addXp(xp); S.done[m.id] = dayKey(); S.ever[m.id] = true; S.photos++; if (BOX) S.boxes++; S.daily.visit++;
       S.food[m.food] = (S.food[m.food] || 0) + 2;
       if (S.week.id !== weekId()) S.week = { id: weekId(), places: [] };
       if (!m.place && !S.week.places.includes(m.id)) S.week.places.push(m.id);
@@ -1086,7 +1173,7 @@
       S.pets[m.pet].seen = Date.now(); S.pets[S.sel].seen = Date.now();
       save();
       if (cur === "garden") refreshBars();
-      publishMission(m, xp, blob);
+      draft = null; draftReady = publishMission(m, xp, blob);
     }
     renderBox();
     const sp = SP[m.pet];
@@ -1098,8 +1185,9 @@
       h("p", { class: "realtag", text: "Espécie real da Serra ✓" + (sp.review ? " · lista em revisão" : "") }),
       back.length ? h("p", { text: back.map(petName).join(", ") + " voltou do passeio!" }) : null,
       m.gift && !already ? h("div", null, h("span", { class: "coupon", text: "Presente do " + m.partner + ": " + m.gift }), h("p", { class: "demo", text: "Mostre esta tela no balcão. Não precisa comprar nada para ganhar a missão." })) : null,
-      !already ? h("p", { style: { color: "var(--mute)", fontSize: ".85rem" }, text: "+1 Caixinha de Natal · +2 " + C.foods[m.food].label }) : null,
+      !already ? h("p", { style: { color: "var(--mute)", fontSize: ".85rem" }, text: (BOX ? "+1 Caixinha de Natal · " : "") + "+2 " + C.foods[m.food].label }) : null,
       h("div", { style: { display: "grid", gap: ".5rem", marginTop: ".6rem" } },
+        !already && !S.exp ? h("button", { class: "btn", on: { click: async () => { await draftReady; if (draft) tryPublish(draft); } } }, "Publicar no feed") : null,
         lastPhoto ? h("button", { class: "btn red", on: { click: () => shareStory(m) } }, icon("share"), "Postar nos Stories") : null,
         lastPhoto ? h("button", { class: "btn alt", on: { click: () => download(lastPhoto.blob, "expedicao-" + m.id + ".jpg") } }, "Baixar foto") : null,
         lastPhoto ? h("button", { class: "btn alt", on: { click: () => orderPrint(m) } }, icon("print"), "Imprimir minha foto · " + C.printPrice) : null,
@@ -1107,6 +1195,43 @@
     if (cur === "feed") renderFeed();
   }
   function clubName() { const c = S.clubs.find(x => x.code === S.club); return c ? c.name : ""; }
+  /* Publicar no feed (ou marcar lugar): pede Google só agora, e só publica com maioridade verificada.
+     Cancelar, trocar de conta ou ficar sem permissão nunca mexe no progresso local. */
+  async function publishGate() {
+    const st = await DB.publishStatus().catch(() => ({ ok: false, reason: "offline" }));
+    if (st.ok) return true;
+    if (st.reason === "offline") { openSheet(h("h2", { text: "Publicar no feed" }), h("p", { text: "Sem conexão com o servidor agora. Sua foto continua no aparelho: você pode baixar ou compartilhar nos Stories." })); return false; }
+    if (st.reason === "google") return new Promise(done => openSheet(h("h2", { text: "Entrar com Google para publicar" }),
+      h("p", { text: "Para jogar não precisa de conta. Para publicar no feed da cidade, entre com uma conta Google. Seu XP, pets e itens continuam neste aparelho, entrando ou não." }),
+      DB.account().anonymous ? h("p", { class: "demo", style: { textAlign: "left" }, text: "Sua conta deste aparelho é ligada ao Google e continua a mesma: seus posts anteriores seguem com você." }) : null,
+      h("div", { class: "row" }, h("button", { class: "btn alt", on: { click: () => { closeSheet(); done(false); } } }, "Agora não"),
+        h("button", { class: "btn", on: { click: async () => { const r = await DB.linkGoogle(); closeSheet(); done(await afterGoogle(r)); } } }, "Entrar com Google"))));
+    ageClosed(); return false;
+  }
+  async function afterGoogle(r) {
+    if (r.cancelled) { toast("Tudo bem. Seu progresso continua aqui."); return false; }
+    if (r.error) { toast(r.error === "auth/popup-blocked" || r.error === "popup" ? "O navegador bloqueou a janela do Google. Libere pop-ups e tente de novo." : "Não deu para entrar agora. Seu progresso continua aqui."); return false; }
+    if (r.conflict) return new Promise(done => openSheet(h("h2", { text: "Essa conta Google já está em uso" }),
+      h("p", { text: "A conta " + (r.email || "Google") + " já está ligada a outro perfil do jogo. Não vamos juntar nem apagar nada." }),
+      h("ul", { class: "plist" }, h("li", { text: "Usar essa conta: você passa a publicar por ela. Seu XP, pets e itens deste aparelho continuam. Os posts feitos por este aparelho antes continuam no perfil anterior e você deixa de poder apagá-los por aqui." }),
+        h("li", { text: "Cancelar: fica tudo como está." })),
+      h("div", { class: "row" }, h("button", { class: "btn alt", on: { click: () => { closeSheet(); done(false); } } }, "Cancelar"),
+        h("button", { class: "btn", on: { click: async () => { const x = await DB.switchToGoogle(r.credential); closeSheet(); if (x.error) { toast("Não deu para trocar de conta agora."); return done(false); } done(await publishGateAfterLogin()); } } }, "Usar essa conta"))));
+    return publishGateAfterLogin();
+  }
+  async function publishGateAfterLogin() { const st = await DB.publishStatus().catch(() => ({ ok: false })); if (st.ok) return true; ageClosed(); return false; }
+  function ageClosed() {
+    openSheet(h("h2", { text: "Publicações fechadas por enquanto" }),
+      h("p", { text: "O feed da cidade só aceita publicações de maiores de 18 anos com idade verificada, e essa verificação ainda não está disponível. Ninguém publica até lá." }),
+      h("p", { class: "demo", style: { textAlign: "left" }, text: "Sua foto e seu progresso ficam no aparelho. Você pode baixar a foto ou compartilhar nos Stories." }),
+      h("button", { class: "btn alt", on: { click: closeSheet } }, "Entendi"));
+  }
+  let draft = null, draftReady = null; // post que ainda não foi publicado (fica só na memória)
+  async function tryPublish(post, after) {
+    if (!(await publishGate())) return false;
+    try { const saved = await DB.addPost(post); draft = null; toast("Publicado no feed!"); if (after) after(saved); if (cur === "feed") renderFeed(); return true; }
+    catch (e) { toast(e.message === "rate" ? "Espere um pouquinho para publicar de novo" : e.message === "blocked" ? "Publicações fechadas por enquanto" : "Não deu para publicar agora"); return false; }
+  }
   async function publishMission(m, xp, blob) {
     const photo = blob ? await thumbOf(blob, 540, 150000) : null;
     if (S.exp) {
@@ -1115,7 +1240,7 @@
     }
     const base = { nick: S.nick, pet: m.pet, pets: [m.pet], xp, places: 1, photo, club: S.club, clubName: clubName() };
     const post = m.place ? Object.assign(base, { kind: "place", title: m.name }) : Object.assign(base, { kind: "mission", missionId: m.id });
-    DB.addPost(post).then(() => { if (cur === "feed") renderFeed(); }).catch(e => { if (e.message !== "rate") toast("Não deu para postar no feed agora"); });
+    draft = post; // só publica se a pessoa tocar em "Publicar no feed"
   }
   function download(blob, name) {
     const a = h("a", { href: URL.createObjectURL(blob), download: name }); document.body.append(a); a.click();
@@ -1570,6 +1695,7 @@
      CAIXINHA DE NATAL (sem compra, sem dinheiro, chances visíveis)
      ========================================================= */
   function openBox() {
+    if (!BOX) return; // desativada: nem abre, nem concede prêmio
     const reels = [0, 1, 2].map(i => h("div", { class: "reel" }, h("img", { src: [T.surucua, "assets/medal-photo.png", "assets/medal-trophy.png"][i], alt: "" })));
     const btn = h("button", { class: "btn red", disabled: S.boxes < 1 }, icon("gift"), S.boxes < 1 ? "Sem caixinhas agora" : "Abrir caixinha");
     const status = h("p", { style: { textAlign: "center", margin: 0, color: "var(--mute)" } }, "Você tem ", h("b", { style: { color: "var(--red)" }, text: S.boxes + " caixinha" + (S.boxes === 1 ? "" : "s") }));
@@ -1632,7 +1758,7 @@
           h("p", { style: { margin: ".35rem 0 0", fontSize: ".85rem" }, text: "Você não precisa criar conta para jogar. XP, pets e itens ficam neste navegador e podem não aparecer em outro celular. As publicações ficam no servidor; para apagá-las, use o navegador em que publicou e mantenha os dados locais." }))),
       h("div", { class: "wrap" },
         h("div", { class: "invite" }, h("small", { text: "Seu código de convite" }), h("div", { class: "c", text: S.code }),
-          h("small", { text: "Quem entrar pelo seu link ganha 1 Caixinha de Natal." }),
+          BOX ? h("small", { text: "Quem entrar pelo seu link ganha 1 Caixinha de Natal." }) : null,
           h("div", { class: "row", style: { marginTop: ".6rem" } }, h("button", { class: "btn", style: { background: "#fff", color: "var(--forest)" }, on: { click: invite } }, icon("share"), "Convidar"))),
         h("div", { class: "sec" }, "Guarda-roupa", h("small", { text: S.acc.length + " de " + Object.keys(C.accessories).length })),
         h("div", { class: "card who", style: { padding: ".6rem .8rem" } }, h("img", { src: T.surucua, alt: "", style: { width: "4rem" } }),
@@ -1641,7 +1767,7 @@
         h("div", { class: "accgrid" }, Object.entries(C.accessories).map(([k, a]) => { const has = S.acc.includes(k), from = MISS.find(m => m.acc === k || m.accNight === k);
           return h("button", { class: "acccell" + (has ? "" : " off") + (Object.values(S.eq).includes(k) ? " on" : ""), on: { click: wardrobe } },
             h("span", { class: "accico", text: { gorro: "🎅", laco: "🎀", cachecol: "🧣", pisca: "✨", oculos: "⭐", gorro_dourado: "👑" }[k] || "🎁" }),
-            h("b", { text: a.label }), h("small", { text: has ? C.slots[a.slot] : "Ganhe em " + (!from ? "Caixinha de Natal" : from.anywhere ? (from.accNight === k ? "pinheiros à noite" : "pinheiros de dia") : from.partner) })); })),
+            h("b", { text: a.label }), h("small", { text: has ? C.slots[a.slot] : "Ganhe em " + (!from ? (BOX ? "Caixinha de Natal" : "breve") : from.anywhere ? (from.accNight === k ? "pinheiros à noite" : "pinheiros de dia") : from.partner) })); })),
         h("div", { class: "sec" }, "Conquistas", h("small", { text: ach.filter(a => a[2]).length + " de " + ach.length })),
         h("div", { class: "grid3" }, ach.map(([l, src, on]) => h("div", { class: "ach" + (on ? "" : " off") }, h("img", { src, alt: "" }), l))),
         h("div", { class: "sec" }, "Ajustes"),
@@ -1675,7 +1801,7 @@
     const refresh = () => { save(); makeThumbs(); prev.src = T.surucua; draw(); if (cur === "garden") renderGarden(); };
     draw();
     openSheet(h("h2", { text: "Vestir o surucuá" }), h("div", { class: "reward" }, prev), body,
-      h("p", { class: "demo", text: "Cada missão dá um acessório de Natal. O gorro dourado vem da Caixinha." }));
+      h("p", { class: "demo", text: "Cada missão dá um acessório de Natal." + (BOX ? " O gorro dourado vem da Caixinha." : "") }));
   }
   function editNick() {
     const inp = h("input", { type: "text", value: S.nick, maxLength: 20, autocomplete: "off", "aria-label": "Apelido" });
@@ -1683,26 +1809,45 @@
       h("button", { class: "btn", style: { marginTop: ".6rem" }, on: { click: () => { const n = DB.cleanNick(inp.value); if (!n) return toast("Escolha um apelido"); S.nick = n; save(); closeSheet(); renderProfile(); } } }, "Salvar"));
   }
   async function invite() {
-    const url = shareUrl(), text = "Bora jogar comigo as Expedições de " + C.city + "! Entra pelo link e ganha uma Caixinha de Natal.";
+    const url = shareUrl(), text = "Bora jogar comigo as Expedições de " + C.city + "!" + (BOX ? " Entra pelo link e ganha uma Caixinha de Natal." : "");
     try { if (navigator.share) await navigator.share({ text, url }); else { await navigator.clipboard.writeText(url); toast("Link copiado!"); } } catch (_) {}
   }
   function privacy() {
+    const P = C.privacy || {};
     openSheet(h("h2", { text: "Privacidade e dados" }),
       h("ul", { class: "plist" },
+        h("li", { text: "Para jogar não precisa de conta. Seu XP, pets e itens ficam neste navegador." }),
+        h("li", { text: "Publicar no feed (ou marcar lugar) exige conta Google e maioridade verificada. Essa verificação ainda não está disponível, então as publicações estão fechadas." }),
+        h("li", { text: "Quando o feed abrir, outras pessoas verão só o apelido, a missão e os números. A foto e o trajeto do post ficam visíveis só para você." }),
         h("li", { text: "No mapa, as ruas vêm do OpenStreetMap: o celular pede as imagens do mapa direto para eles." }),
         h("li", { text: "A câmera e o microfone são usados só no seu celular. O áudio nunca é gravado nem enviado." }),
-        h("li", { text: "A foto da missão vai para o feed em tamanho pequeno, com seu apelido. Você pode apagar o post pelo navegador em que publicou, enquanto os dados locais forem mantidos." }),
-        h("li", { text: "Dica: seu XP, pets e itens ficam neste navegador e não sincronizam com outro celular. As publicações ficam no servidor, mas trocar de aparelho ou apagar os dados locais pode tirar seu acesso para removê-las." }),
-        h("li", { text: "Na expedição, o trajeto é publicado sem os primeiros e os últimos " + C.routePrivacyMeters + " m e com precisão reduzida, para não mostrar onde você mora." }),
+        h("li", { text: "Na expedição, o trajeto guardado perde os primeiros e os últimos " + C.routePrivacyMeters + " m e tem precisão reduzida." }),
         h("li", { text: "Posts de outras pessoas podem ser denunciados no botão ⋯." }),
-        h("li", { text: "Não pedimos nome, e-mail nem telefone para jogar." }),
         h("li", { text: "Não tem anúncio montado a partir do seu perfil, nem compra de caixinha." })),
+      h("div", { class: "sec" }, "Apagar meus dados"),
+      h("p", { class: "demo", style: { textAlign: "left" }, text: "Apaga no servidor: seus posts (com os aplausos neles), os aplausos que você deu por este aparelho, os lugares que você marcou (com as visitas), os pedidos de impressão, seu perfil e sua conta. Só depois disso apaga o jogo deste aparelho." }),
+      h("p", { class: "demo", style: { textAlign: "left" }, text: "Não sai por este botão (a equipe apaga a pedido): denúncias que você enviou, pedidos de \"Este lugar é meu?\", contatos e missões de loja, e confirmações de visita em lugares de outras pessoas." }),
+      h("p", { class: "demo", style: { textAlign: "left" }, text: P.contact
+        ? "Pedido de exclusão sem entrar no app (por exemplo, se perdeu o celular): " + P.contact + ". Informe seu apelido e, se usou, o e-mail da conta Google."
+        : "Canal para pedidos de exclusão sem entrar no app: em definição pela equipe." }),
       h("button", { class: "btn red", on: { click: confirmDelete } }, "Apagar meus dados"));
   }
   function confirmDelete() {
-    openSheet(h("h2", { text: "Apagar tudo?" }), h("p", { text: "Isso apaga seus pets, XP, posts e pedidos, neste aparelho e no servidor. Não dá para desfazer." }),
+    openSheet(h("h2", { text: "Apagar tudo?" }), h("p", { text: "Isso apaga seus posts, lugares, pedidos e sua conta no servidor e, depois, seus pets, XP e itens neste aparelho. Não dá para desfazer." }),
       h("div", { class: "row" }, h("button", { class: "btn alt", on: { click: closeSheet } }, "Cancelar"),
-        h("button", { class: "btn red", on: { click: async () => { try { await DB.deleteMine(); location.reload(); } catch (_) { toast("Não deu para apagar no servidor. Tente de novo."); } } } }, "Apagar")));
+        h("button", { class: "btn red", on: { click: runDelete } }, "Apagar")));
+  }
+  const STEP = { aplausos: "aplausos", posts: "posts", lugares: "lugares marcados", pedidos: "pedidos de impressão", perfil: "perfil", conta: "conta" };
+  async function runDelete(e) {
+    const btn = e && e.currentTarget; if (btn) { btn.disabled = true; btn.textContent = "Apagando…"; }
+    const r = await DB.deleteMine({ clapped: S.clapped || [] }).catch(err => ({ ok: false, done: [], failed: "posts", code: err && err.code }));
+    if (r.ok) { wiping = true; DB.LS.clear(); location.reload(); return; }
+    openSheet(h("h2", { text: "A exclusão ficou incompleta" }),
+      h("p", { text: r.done.length ? "Já apagado no servidor: " + r.done.map(k => STEP[k]).join(", ") + "." : "Nada foi apagado no servidor ainda." }),
+      h("p", { text: "Parou em: " + (STEP[r.failed] || r.failed) + (r.code === "auth/requires-recent-login" || r.code === "auth/popup-closed-by-user" ? " (é preciso confirmar a conta Google na janela que abre)." : ".") }),
+      h("p", { class: "demo", style: { textAlign: "left" }, text: "Seu jogo neste aparelho foi mantido. Tentar de novo é seguro: o que já foi apagado não dá erro." }),
+      h("div", { class: "row" }, h("button", { class: "btn alt", on: { click: closeSheet } }, "Fechar"),
+        h("button", { class: "btn red", on: { click: runDelete } }, "Tentar de novo")));
   }
   let deferredInstall = null;
   window.addEventListener("beforeinstallprompt", e => { e.preventDefault(); deferredInstall = e; });
@@ -1720,6 +1865,14 @@
   /* =========================================================
      PARA LOJAS: contato com consentimento + painel de exemplo
      ========================================================= */
+  /* Atalho para lojistas (Início e Mapa): leva para "Leve sua loja para o jogo". */
+  function storeCta() {
+    return h("button", { class: "card storecta", on: { click: () => show("partner") } },
+      h("span", { class: "storeico", "aria-hidden": "true", text: "🏪" }),
+      h("span", { style: { flex: "1", textAlign: "left" } }, h("b", { text: "Tenho uma loja" }), h("br"),
+        h("small", { text: "Crie uma missão, imprima o QR e a tag do surucuá" })),
+      h("span", { "aria-hidden": "true", text: "›", style: { fontSize: "1.4rem", color: "var(--forest)" } }));
+  }
   function renderPartner() {
     const store = h("input", { type: "text", maxLength: 60, placeholder: "Nome da loja", autocomplete: "organization", "aria-label": "Nome da loja" });
     const contact = h("input", { type: "text", maxLength: 60, placeholder: "WhatsApp ou e-mail da loja", autocomplete: "off", "aria-label": "Contato" });
@@ -1733,7 +1886,7 @@
       send.disabled = false;
     });
     put($("v-partner"), h("div", { class: "wrap", style: { paddingTop: ".8rem" } },
-      h("button", { class: "linkbtn", on: { click: () => show("profile") } }, "‹ Voltar"),
+      h("button", { class: "linkbtn", on: { click: () => goBack(prevView && prevView !== "partner" ? prevView : "feed") } }, "‹ Voltar"),
       h("h2", { class: "ptitle", style: { fontSize: "1.3rem" }, text: "Leve sua loja para o jogo" }),
       h("p", { text: "Um bicho da serra passa a morar na sua loja. Quem faz a missão posta a sua vitrine e volta para buscar comidinha para o pet." }),
       h("div", { class: "card" }, store, contact,
@@ -1748,7 +1901,7 @@
 
   function storeMissionCard() {
     const models = [["foto", "Foto com produto"], ["visitas", "3 visitas no mês"], ["sabado", "Venha no sábado"], ["dupla", "Missão em dupla"]];
-    let model = "foto", pet = "sabia";
+    let model = "foto", pet = "surucua";
     const chips = h("div", { class: "chips" }, models.map(([k, l]) => h("button", { class: "chip" + (k === model ? " on" : ""), "data-k": k, on: { click: () => { model = k; chips.querySelectorAll(".chip").forEach(c => c.classList.toggle("on", c.dataset.k === k)); } } }, l)));
     const store = h("input", { type: "text", maxLength: 60, placeholder: "Nome da loja", autocomplete: "organization" });
     const subject = h("input", { type: "text", maxLength: 60, placeholder: "O que aparece na foto (ex.: Cafezinho na caneca da casa)", autocomplete: "off" });
@@ -1781,8 +1934,27 @@
   /* =========================================================
      BOAS-VINDAS (3 passos) e convite por link
      ========================================================= */
+  /* Voltar do app: usa o histórico quando dá (assim fica igual ao voltar nativo). */
+  function goBack(fallback) { if (history.state && (history.state.v || typeof history.state.onb === "number") && history.length > 1 && !atRoot()) history.back(); else show(fallback); }
+  const atRoot = () => history.state && history.state.root === true;
+  let onbCtl = null;
+  window.addEventListener("popstate", e => {
+    const st = e.state || {};
+    /* voltar disparado pelo próprio app ao fechar folha/câmera: só reaplica o que ficou na fila */
+    if (pendingBack) {
+      pendingBack = false; const q = navQueue; navQueue = [];
+      q.forEach(x => { if (x.guard && !overlayOn()) return; if (x.guard) guardOpen = true; history.pushState(x, ""); });
+      if (overlayOn() && !guardOpen) { guardOpen = true; history.pushState({ v: cur, guard: true }, ""); }
+      return;
+    }
+    /* voltar nativo com folha ou câmera abertas: fecha e a tela continua onde estava */
+    if (guardOpen) { guardOpen = false; $("sheet").classList.remove("on"); if ($("v-cam").classList.contains("on")) closeCam(); return; }
+    if (onbCtl) { if (typeof st.onb === "number") onbCtl.go(st.onb); else if (onbCtl.finishing) onbCtl.done(); return; }
+    if (st.v && st.v !== cur) show(st.v, true);
+  });
   function onboarding() {
     const o = $("onb"); let step = 0;
+    history.replaceState({ onb: 0, root: true }, "");
     const nick = h("input", { type: "text", value: S.nick, maxLength: 20, autocomplete: "off", "aria-label": "Apelido" });
     const steps = [
       () => [h("img", { src: T.surucua, alt: "", class: "onbimg" }), h("h2", { text: "Oi! Eu sou o " + C.guideName }),
@@ -1794,22 +1966,32 @@
           h("li", { text: "Você joga com um apelido e decide o que compartilhar." }),
           h("li", { text: "Seu trajeto aparece sem o começo e o fim." })),
         h("button", { class: "opt", "aria-pressed": String(S.big), on: { click: e => { toggleBig(); e.currentTarget.setAttribute("aria-pressed", String(S.big)); } } }, h("span", { class: "dot" }), "Usar letra grande")],
-      () => [h("h2", { text: "Seu apelido" }), h("p", { text: "Ele aparece no feed. Use um apelido, não seu nome completo." }), nick,
-        S.ref ? h("p", { class: "coupon", text: "Você veio por um convite: ganhou 1 Caixinha!" }) : null]
+      () => [h("h2", { text: "Seu apelido" }), h("p", { text: "Use um apelido, não seu nome completo. Ele aparece se um dia você publicar no feed." }), nick,
+        S.ref && BOX ? h("p", { class: "coupon", text: "Você veio por um convite: ganhou 1 Caixinha!" }) : null]
     ];
+    /* Cada passo entra no histórico. O "Voltar" aparece a partir do 2º passo; o voltar nativo faz o mesmo.
+       O apelido digitado e a letra grande continuam escolhidos ao voltar e avançar. */
     const draw = () => {
       const last = step === steps.length - 1;
-      put(o, ...steps[step](), h("div", { class: "dots" }, steps.map((_, i) => h("i", { class: i === step ? "on" : "" }))),
+      put(o, step > 0 ? h("button", { class: "linkbtn onbback", on: { click: () => history.back() } }, "‹ Voltar") : null,
+        ...steps[step](), h("div", { class: "dots" }, steps.map((_, i) => h("i", { class: i === step ? "on" : "" }))),
         h("button", { class: "btn", style: { maxWidth: "20rem", marginTop: "1rem" }, on: { click: () => {
-          if (!last) { step++; return draw(); }
-          S.nick = DB.cleanNick(nick.value) || S.nick; S.onb = true; save(); o.classList.remove("on"); show("feed");
+          if (!last) { step++; history.pushState({ onb: step }, ""); return draw(); }
+          S.nick = DB.cleanNick(nick.value) || S.nick; S.onb = true; save();
+          /* volta o histórico para a entrada inicial e transforma em tela inicial do jogo */
+          onbCtl.finishing = true; if (step > 0) history.go(-step); else onbCtl.done();
         } } }, last ? "Começar" : "Próximo"));
+    };
+    onbCtl = {
+      step: () => step, finishing: false,
+      go: n => { if (onbCtl.finishing) { if (n === 0) onbCtl.done(); return; } step = Math.max(0, Math.min(steps.length - 1, n)); draw(); },
+      done: () => { onbCtl = null; o.classList.remove("on"); history.replaceState({ v: "feed", root: true }, ""); show("feed", true); }
     };
     o.classList.add("on"); draw();
   }
   function readInvite() {
     const c = new URLSearchParams(location.search).get("c");
-    if (c && /^[A-Z2-9]{6}$/.test(c) && c !== S.code && !S.ref) { S.ref = c; S.boxes++; save(); }
+    if (c && /^[A-Z2-9]{6}$/.test(c) && c !== S.code && !S.ref) { S.ref = c; if (BOX) S.boxes++; save(); }
     if (c) history.replaceState(null, "", location.pathname);
   }
 
@@ -1821,7 +2003,7 @@
       if (byId(id) || typeof d.store !== "string" || typeof d.subject !== "string") continue;
       const x = typeof d.mapX === "number" ? Math.min(.95, Math.max(.05, d.mapX)) : .5, y = typeof d.mapY === "number" ? Math.min(.95, Math.max(.05, d.mapY)) : .5;
       MISS.push({ id, name: DB.cleanName(d.subject, 40), partner: DB.cleanName(d.store, 40), task: "Foto com " + DB.cleanName(d.subject, 40) + " (não precisa comprar)", xp: 60,
-        pet: SP[d.pet] ? d.pet : "sabia", food: "sementes", lights: false, mapX: x, mapY: y, lat: typeof d.lat === "number" ? d.lat : null, lng: typeof d.lng === "number" ? d.lng : null,
+        pet: SP[d.pet] ? d.pet : "surucua", food: "sementes", lights: false, mapX: x, mapY: y, lat: typeof d.lat === "number" ? d.lat : null, lng: typeof d.lng === "number" ? d.lng : null,
         gift: typeof d.gift === "string" ? d.gift.slice(0, 60) : "", tip: "Chegamos em " + DB.cleanName(d.store, 40) + "! Me deixa aparecer na foto." });
     }
   }
@@ -1837,7 +2019,7 @@
     loadStoreMissions();
     if (S.exp) expWatch();
     renderTabs(); renderBox();
-    if (!S.onb) onboarding(); else show("feed");
+    if (!S.onb) onboarding(); else { history.replaceState({ v: "feed", root: true }, ""); show("feed", true); }
     document.addEventListener("visibilitychange", () => { if (document.visibilityState === "hidden") { save(); if ($("v-cam").classList.contains("on")) closeCam(); } });
     if ("serviceWorker" in navigator && (location.protocol === "https:" || location.hostname === "localhost")) navigator.serviceWorker.register("sw.js").catch(() => {});
   }

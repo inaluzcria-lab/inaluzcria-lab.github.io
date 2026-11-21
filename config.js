@@ -19,6 +19,13 @@ window.CONFIG = {
     measurementId: "G-EMSTRY0SZK"
   },
 
+  /* Caixinha de Natal: desativada nesta versão (não aparece, não abre, não gera novas).
+     Só volte para true com abertura e prêmio rodando em backend com verificação de 18+. */
+  box: { enabled: false },
+  /* Privacidade. contact = canal REAL e confirmado para pedidos de exclusão sem login (e-mail ou formulário).
+     null = o app avisa que o canal está em definição. Não coloque contato que ninguém atende. */
+  privacy: { contact: null },
+
   city: "Miguel Pereira",
   season: "Natal no Centro",
   seasonEnd: "6 de janeiro",

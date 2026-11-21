@@ -19,24 +19,55 @@ service cloud.firestore {
     }
     function opt(d, k) { return !(k in d); }
 
+    // ---------- versão pública ----------
+    // Publicar exige conta Google E a claim "ageVerified" == true no token. Essa claim só pode ser
+    // gravada por backend confiável (Admin SDK) depois de uma verificação de idade real.
+    // O app nunca consegue gravá-la. Sem ela, nenhuma publicação nova passa.
+    function google() {
+      return signedIn() && request.auth.token.firebase.sign_in_provider != 'anonymous'
+        && ('google.com' in request.auth.token.firebase.identities);
+    }
+    function canPublish() { return google() && request.auth.token.get('ageVerified', false) == true; }
+    // O feed público só abre quando a equipe grava config/public { feedOpen: true } pelo console
+    // (com denúncia + responsável pela moderação definidos). Sem isso, cada um só vê os próprios posts.
+    function feedOpen() {
+      return exists(/databases/$(database)/documents/config/public)
+        && get(/databases/$(database)/documents/config/public).data.get('feedOpen', false) == true;
+    }
+    function privPath(pid) { return /databases/$(database)/documents/posts_private/$(pid); }
+    function ownsPost(pid) { return signedIn() && exists(privPath(pid)) && get(privPath(pid)).data.uid == request.auth.uid; }
+    // Post antigo (antes da v2) tinha o campo uid no documento público.
+    function legacyMine(d) { return signedIn() && ('uid' in d) && d.uid == request.auth.uid; }
+
+    // Chaves de configuração: leitura livre, escrita só pelo console (Admin).
+    match /config/{doc} {
+      allow read: if true;
+    }
+
     // Perfil mínimo: apelido e horários dos últimos posts. Só a própria pessoa lê e escreve.
     match /users/{uid} {
       allow read, delete: if isMe(uid);
       allow create, update: if isMe(uid)
-        && request.resource.data.keys().hasOnly(['nick', 'lastPostAt', 'lastPlaceAt'])
+        && request.resource.data.keys().hasOnly(['nick', 'lastPostAt', 'lastPostId', 'lastPlaceAt'])
         && text(request.resource.data.nick, 20)
-        && (opt(request.resource.data, 'lastPostAt') || request.resource.data.lastPostAt == request.time
+        && (opt(request.resource.data, 'lastPostAt') || (request.resource.data.lastPostAt == request.time && canPublish())
             || (resource != null && request.resource.data.lastPostAt == resource.data.lastPostAt))
+        && (opt(request.resource.data, 'lastPostId') || (request.resource.data.lastPostId is string && request.resource.data.lastPostId.size() <= 40))
         && (opt(request.resource.data, 'lastPlaceAt') || request.resource.data.lastPlaceAt == request.time
             || (resource != null && request.resource.data.lastPlaceAt == resource.data.lastPlaceAt));
     }
 
-    // Feed público: apelido, foto reduzida (opcional), XP, km, trajeto resumido.
+    // Post público (v: 2): só apelido, missão, XP, km, tempo, lugares e clube. Sem dono, foto ou trajeto.
+    // Leitura pública só com o feed aberto e só de posts v2. O dono sempre lê e apaga os seus.
+    // Posts antigos (com uid, foto e trajeto no documento) ficam visíveis só para o dono.
     match /posts/{pid} {
-      allow read: if true;
-      allow create: if signedIn() && validPost(request.resource.data) && throttled('lastPostAt');
-      // Só o contador de aplausos muda, de 1 em 1, junto com o documento claps/{uid}.
-      allow update: if signedIn()
+      allow get: if (feedOpen() && resource.data.get('v', 0) == 2) || ownsPost(pid) || legacyMine(resource.data);
+      allow list: if (feedOpen() && resource.data.get('v', 0) == 2) || legacyMine(resource.data);
+      allow create: if canPublish() && validPost(request.resource.data) && throttled('lastPostAt')
+        && getAfter(userPath()).data.lastPostId == pid
+        && existsAfter(privPath(pid)) && getAfter(privPath(pid)).data.uid == request.auth.uid;
+      // Só o contador de aplausos muda, de 1 em 1, junto com o documento claps/{uid}. Só com o feed aberto.
+      allow update: if signedIn() && feedOpen()
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['claps'])
         && (
           (request.resource.data.claps == resource.data.claps + 1
@@ -47,21 +78,35 @@ service cloud.firestore {
             && exists(/databases/$(database)/documents/posts/$(pid)/claps/$(request.auth.uid))
             && !existsAfter(/databases/$(database)/documents/posts/$(pid)/claps/$(request.auth.uid)))
         );
-      allow delete: if isMe(resource.data.uid);
+      // Apagar o próprio post continua permitido mesmo sem poder publicar.
+      allow delete: if ownsPost(pid) || legacyMine(resource.data);
 
       match /claps/{uid} {
-        allow read: if isMe(uid);
-        allow create: if isMe(uid) && request.resource.data.keys().hasOnly(['at'])
+        allow read: if isMe(uid) || ownsPost(pid) || legacyMine(get(/databases/$(database)/documents/posts/$(pid)).data);
+        allow create: if isMe(uid) && feedOpen() && request.resource.data.keys().hasOnly(['at'])
           && getAfter(/databases/$(database)/documents/posts/$(pid)).data.claps
              == get(/databases/$(database)/documents/posts/$(pid)).data.claps + 1;
-        allow delete: if isMe(uid)
+        // Quem aplaudiu tira o aplauso (contador -1). O dono do post apaga os aplausos ao apagar o post.
+        allow delete: if (isMe(uid)
           && getAfter(/databases/$(database)/documents/posts/$(pid)).data.claps
-             == get(/databases/$(database)/documents/posts/$(pid)).data.claps - 1;
+             == get(/databases/$(database)/documents/posts/$(pid)).data.claps - 1)
+          || ownsPost(pid) || legacyMine(get(/databases/$(database)/documents/posts/$(pid)).data);
       }
     }
+    // Parte privada do post: dono, foto reduzida e trajeto resumido. Só o dono lê e apaga.
+    match /posts_private/{pid} {
+      allow read, delete: if signedIn() && resource.data.uid == request.auth.uid;
+      allow create: if canPublish()
+        && request.resource.data.keys().hasOnly(['uid', 'photo', 'route', 'createdAt'])
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.createdAt == request.time
+        && (opt(request.resource.data, 'photo') || photoOk(request.resource.data.photo, 160000))
+        && (opt(request.resource.data, 'route') || (request.resource.data.route is list && request.resource.data.route.size() <= 240))
+        && existsAfter(/databases/$(database)/documents/posts/$(pid));
+    }
     function validPost(d) {
-      return d.keys().hasOnly(['uid', 'kind', 'nick', 'missionId', 'missions', 'title', 'pet', 'pets', 'xp', 'km', 'mins', 'places', 'photo', 'route', 'club', 'clubName', 'claps', 'createdAt'])
-        && d.uid == request.auth.uid
+      return d.keys().hasOnly(['v', 'kind', 'nick', 'missionId', 'missions', 'title', 'pet', 'pets', 'xp', 'km', 'mins', 'places', 'club', 'clubName', 'claps', 'createdAt'])
+        && d.v == 2
         && d.kind in ['mission', 'expedition', 'place']
         && text(d.nick, 20) && slug(d.pet)
         && d.xp is int && d.xp >= 0 && d.xp <= 2000
@@ -73,25 +118,32 @@ service cloud.firestore {
         && (opt(d, 'km') || numIn(d.km, 0, 100))
         && (opt(d, 'mins') || (d.mins is int && d.mins >= 0 && d.mins <= 1440))
         && (opt(d, 'places') || (d.places is int && d.places >= 0 && d.places <= 50))
-        && (opt(d, 'photo') || photoOk(d.photo, 160000))
-        && (opt(d, 'route') || (d.route is list && d.route.size() <= 240))
         && (opt(d, 'club') || (d.club is string && d.club.matches('^[A-Z2-9]{6}$') && text(d.clubName, 24)));
     }
 
-    // Meta da cidade: só soma 1, e só junto com um post novo.
+    // Meta da cidade: só soma 1, e só junto com um post autorizado criado no mesmo lote
+    // (o post lastPostId não existia antes e passa a existir agora).
     // Crie stats/city com { photos: 0 } pelo console antes de abrir o jogo.
+    function newPostInBatch() {
+      let pid = getAfter(userPath()).data.lastPostId;
+      return getAfter(userPath()).data.lastPostAt == request.time
+        && !exists(/databases/$(database)/documents/posts/$(pid))
+        && existsAfter(/databases/$(database)/documents/posts/$(pid));
+    }
     match /stats/{doc} {
       allow read: if true;
-      allow update: if doc == 'city' && signedIn()
+      allow update: if doc == 'city' && canPublish()
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['photos'])
         && request.resource.data.photos == resource.data.photos + 1
-        && getAfter(userPath()).data.lastPostAt == request.time;
+        && newPostInBatch();
     }
 
     // Lugares marcados pelos jogadores. Quem marca já conta como 1 visita.
+    // Marcar lugar é publicação pública (foto + coordenadas): exige canPublish().
+    // PENDENTE: lugares antigos guardam uid no documento público (ver README, migração).
     match /places/{id} {
       allow read: if true;
-      allow create: if signedIn()
+      allow create: if canPublish()
         && request.resource.data.keys().hasOnly(['uid', 'nick', 'name', 'type', 'lat', 'lng', 'confirms', 'photo', 'createdAt'])
         && request.resource.data.uid == request.auth.uid
         && text(request.resource.data.nick, 20)
@@ -112,7 +164,9 @@ service cloud.firestore {
       allow delete: if isMe(resource.data.uid);
 
       match /visits/{uid} {
-        allow read: if isMe(uid);
+        allow read: if isMe(uid) || (signedIn() && get(/databases/$(database)/documents/places/$(id)).data.uid == request.auth.uid);
+        // O dono do lugar apaga as visitas ao apagar o lugar (exclusão de dados).
+        allow delete: if signedIn() && get(/databases/$(database)/documents/places/$(id)).data.uid == request.auth.uid;
         allow create: if isMe(uid) && request.resource.data.keys().hasOnly(['at'])
           && (!exists(/databases/$(database)/documents/places/$(id))
               || getAfter(/databases/$(database)/documents/places/$(id)).data.confirms
