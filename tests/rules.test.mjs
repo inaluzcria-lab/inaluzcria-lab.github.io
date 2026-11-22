@@ -61,4 +61,30 @@ await t("nome do passarinho só é aceito com Outro", () => assertFails(setDoc(d
 await t("ninguém grava config/public pelo app", () => assertFails(setDoc(doc(adult, "config/public"), { feedOpen: true })));
 await t("perfil próprio pode ser apagado", () => assertSucceeds(deleteDoc(doc(adult, "users/g2"))));
 await env.cleanup();
+/* ---- novos tipos de post, fotos extras e descoberta compartilhada ---- */
+async function publishKind(db, uid, pid, extraPub, extraPriv) {
+  const b = writeBatch(db);
+  b.set(doc(db, "users/" + uid), { nick: "Ana", lastPostAt: serverTimestamp(), lastPostId: pid }, { merge: true });
+  b.set(doc(db, "posts/" + pid), Object.assign({ createdAt: serverTimestamp() }, pub, extraPub));
+  b.set(doc(db, "posts_private/" + pid), Object.assign({ uid, createdAt: serverTimestamp() }, extraPriv || {}));
+  return b.commit();
+}
+const jpg = "data:image/jpeg;base64,AAAA";
+// cada publicação usa uma conta própria: as regras limitam a 1 post a cada 30 s por pessoa
+let ad = 0; const adultN = () => { const uid = "ga" + (++ad); return [env.authenticatedContext(uid, { ageVerified: true, firebase: { sign_in_provider: "google.com", identities: { "google.com": [uid] } } }).firestore(), uid]; };
+const pubAs = (pid, extraPub, extraPriv) => { const [db, uid] = adultN(); return publishKind(db, uid, pid, extraPub, extraPriv); };
+await t("check-in sem trilha publica", () => assertSucceeds(pubAs("CHK0001", { kind: "checkin", title: "Check-in no Cheirin" })));
+await t("check-in com trilha é recusado", () => assertFails(pubAs("CHK0002", { kind: "checkin" }, { route: [1, 2, 3, 4] })));
+await t("Vi na vida real publica com real: true", () => assertSucceeds(pubAs("REAL001", { kind: "sighting", real: true, pet: "ave-real" }, { photo: jpg })));
+await t("real só vale em sighting", () => assertFails(pubAs("REAL002", { kind: "mission", real: true })));
+await t("encontro (ave virtual) publica", () => assertSucceeds(pubAs("ENC0001", { kind: "encounter", title: "Tem uma ave virtual no Cheirin" })));
+await t("até 3 fotos extras na parte privada", () => assertSucceeds(pubAs("PHO0001", { kind: "expedition" }, { photo: jpg, photos: [jpg, jpg, jpg] })));
+await t("4 fotos extras é recusado", () => assertFails(pubAs("PHO0002", { kind: "expedition" }, { photos: [jpg, jpg, jpg, jpg] })));
+await t("foto extra fora do formato é recusada", () => assertFails(pubAs("PHO0003", { kind: "expedition" }, { photos: ["http://x"] })));
+await t("descoberta: conta anônima registra lugar + espécie", () => assertSucceeds(setDoc(doc(anon, "spawns/cheirin_surucua"), { place: "cheirin", species: "surucua", at: serverTimestamp() })));
+await t("descoberta: outra conta lê", () => assertSucceeds(getDoc(doc(other, "spawns/cheirin_surucua"))));
+await t("descoberta: visitante sem login não lê", () => assertFails(getDoc(doc(guest, "spawns/cheirin_surucua"))));
+await t("descoberta: id precisa bater com lugar_espécie", () => assertFails(setDoc(doc(anon, "spawns/outro_id"), { place: "cheirin", species: "surucua", at: serverTimestamp() })));
+await t("descoberta: não aceita uid nem posição", () => assertFails(setDoc(doc(anon, "spawns/cheirin_surucua"), { place: "cheirin", species: "surucua", at: serverTimestamp(), uid: "anon1", lat: -22.4 })));
+
 console.log(`\n${n} passaram, ${fail} falharam`); process.exit(fail ? 1 : 0);

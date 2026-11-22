@@ -42,8 +42,27 @@ window.CONFIG = {
   species: {
     surucua: { name: "Surucuá-variado", sci: "Trogon surrucura", fav: "insetinhos", review: true,
                fact: "Ave da Mata Atlântica. Fica parado nos galhos e pega insetos e frutinhas em voos curtos.",
-               skill: "Bônus de +20 XP nos lugares de mata." }
+               skill: "Bônus de +20 XP nos lugares de mata.",
+               /* Ficha do Almanaque. Preencha só com a curadoria (texto próprio + link da fonte).
+                  { text, src } = informação verificada; null = o app mostra "pendente de verificação".
+                  obs = link de uma observação em Miguel Pereira no iNaturalist (só o link; nada é importado). */
+               almanac: { diet: null, habitat: null, nest: null, obs: null } }
   },
+  /* Outras aves do Almanaque entram aqui depois da curadoria, no mesmo formato acima, com:
+     fav (comida da espécie, em foods) e img (arte própria do jogo; sem img o app mostra uma silhueta genérica).
+     Ex.: tiesangue: { name: "Tiê-sangue", sci: "…", fav: "frutinhas", img: "assets/aves/tie.png", almanac: { … } } */
+
+  /* Busca no território e encontro (sem tag, sem expedição): a localização do lugar cadastrado libera a busca. */
+  encounter: {
+    radiusMeters: 120,          // distância máxima do lugar cadastrado (lat/lng da missão)
+    visitHours: 2,              // quanto tempo a ave fica de visita no Jardim
+    feedExtraHours: 1,          // alimentar com fome faz ela ficar mais esse tempo
+    /* Hipótese em teste: a ave reconhece a pessoa ("Oi, você voltou!") depois de já ter visitado o Jardim. */
+    recognizeAfterGardenVisit: true,
+    lines: { ask: "Me leve com você", bye: "Tudo bem… fico por aqui. Tchau!", back: "Oi, você voltou!" }
+  },
+  /* Aviso de proximidade dentro do app (sem notificação com o app fechado). */
+  nearby: { meters: 300, lines: ["Atenção, hora de olhar ao redor", "Psiu, olha em volta!", "Algo se mexeu por aqui…"] },
 
   /* Acessórios de Natal: cada missão dá um. O surucuá veste um por parte do corpo. */
   accessories: {
@@ -119,8 +138,13 @@ window.CONFIG = {
   /* Limites do mapa ilustrado (opcional). Com isso, lugares marcados aparecem como pinos.
      Ex.: { north: -22.44, south: -22.47, west: -43.49, east: -43.45 } */
   mapBounds: null,
-  /* Privacidade do trajeto: corta o começo e o fim da rota publicada (metros). */
+  /* Privacidade do trajeto: corta o começo e o fim da rota publicada (metros).
+     routeHideStartMeters: os primeiros metros saem do mapa, dos dados e da imagem compartilhada.
+     routePrivacyMeters: corte do final (já existia; mantido até decisão).
+     checkinMeters: abaixo disso, a expedição vira check-in do lugar, sem trilha. */
+  routeHideStartMeters: 200,
   routePrivacyMeters: 150,
+  checkinMeters: 200,
 
   /* Evento relâmpago (exemplo de horário). */
   flash: { name: "Lago do Javary", text: "Hoje, 19h às 20h: fotos no lago valem XP em dobro", mapX: .60, mapY: .13, lat: -22.4715, lng: -43.4929,

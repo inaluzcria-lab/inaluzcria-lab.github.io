@@ -69,6 +69,13 @@
   /* Reações (clipes que tocam uma vez e voltam ao idle). Curioso: inclina a cabeça. Carinho: fecha os olhos e relaxa.
      Feliz: pulinho com as asas um pouco abertas. */
   const ONCE = ["pouso", "canto", "comer", "curioso", "carinho", "feliz"];
+  /* Poses do encontro, feitas sobre o idle mexendo nos ossos do próprio .glb (mesma malha, textura e escala).
+     triste = cabeça baixa e asas caídas; pedido = cabeça e asas erguidas, como quem pede colo. */
+  const POSES = {
+    triste: { head: [.62, 0, 0], wingL: [0, 0, .15], wingR: [0, 0, -.15] },
+    pedido: { head: [-.35, 0, 0], wingL: [0, 0, 1.15], wingR: [0, 0, -1.15] }
+  };
+  function pose(g, name) { const u = g && g.userData; if (!u || !u.mixer) return; if ((u.pose || null) === (name || null)) return; u.pose = name || null; u.poseT = performance.now(); }
   function play(g, name, ms) {
     const u = g && g.userData; if (!u || !u.mixer) return;
     const clip = name === "fala" ? "canto" : name, next = u.acts[clip]; if (!next) return;
@@ -86,7 +93,16 @@
     const A = u.anim || {};
     if (ONCE.includes(A.name) && !u.cur.isRunning()) play(g, "idle");
     else if (A.name === "fala" && now - A.t0 > (A.ms || 1500)) play(g, "idle");
+    /* Poses de humor (cabisbaixo, pedido de colo): deslocamentos somados aos ossos depois do clipe.
+       Antes de cada quadro o deslocamento anterior é desfeito, para não acumular. */
+    if (u.poseApplied) { u.poseApplied.forEach(([b, d]) => { b.rotation.x -= d[0]; b.rotation.y -= d[1]; b.rotation.z -= d[2]; }); u.poseApplied = null; }
     u.mixer.update(dt);
+    const P = u.pose && POSES[u.pose];
+    if (P) {
+      const k = Math.min(1, (now - (u.poseT || now)) / 350); u.poseApplied = [];
+      for (const [n, d] of Object.entries(P)) { const b = bone(g, n); if (!b) continue; const q = [d[0] * k, d[1] * k, d[2] * k];
+        b.rotation.x += q[0]; b.rotation.y += q[1]; b.rotation.z += q[2]; u.poseApplied.push([b, q]); }
+    }
     /* olhos: fecham durante o carinho (achatam como um risquinho) e abrem devagar */
     if (u.eyes) { const s = u.shut, k = s ? Math.min(1, Math.max(0, (now - s.t0) / 120)) * Math.min(1, Math.max(0, (s.t1 - now) / 160)) : 0;
       if (s && now > s.t1) u.shut = null; u.eyes.forEach(e => { e.scale.y = 1 - .88 * k; }); }
@@ -219,5 +235,5 @@
   /* Posição da boca no mundo (para a comida voar até ela). */
   function head(g) { const m = g && g.userData.top; return m ? m.getWorldPosition(new THREE.Vector3()) : null; }
   function mouth(g) { const m = g && g.userData.mouth; return m ? m.getWorldPosition(new THREE.Vector3()) : null; }
-  window.Pets = { NAMES, make, lights, thumbs, cache, has, preload, dress, play, tick, mouth, head, SONG_MS };
+  window.Pets = { NAMES, make, lights, thumbs, cache, has, preload, dress, play, tick, mouth, head, pose, SONG_MS };
 })();

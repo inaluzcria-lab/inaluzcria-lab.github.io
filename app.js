@@ -55,6 +55,8 @@
     cookie: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><circle cx="9" cy="9" r="1" fill="currentColor"/><circle cx="14" cy="13" r="1" fill="currentColor"/><circle cx="10" cy="15" r="1" fill="currentColor"/></svg>',
     share: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 15V3M7 8l5-5 5 5M5 13v7h14v-7"/></svg>',
     print: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9V3h12v6M6 18H4v-7h16v7h-2"/><rect x="6" y="14" width="12" height="7"/></svg>',
+    book: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M2 5h6a4 4 0 014 4v11a3 3 0 00-3-3H2z"/><path d="M22 5h-6a4 4 0 00-4 4v11a3 3 0 013-3h7z"/></svg>',
+    bird: '<svg viewBox="0 0 64 64" fill="currentColor"><ellipse cx="30" cy="38" rx="15" ry="12"/><circle cx="42" cy="26" r="8"/><path d="M49 25l8 2-8 2z"/><path d="M16 40l-12 8 14-2z"/><path d="M26 49l-3 9M34 49l1 9" stroke="currentColor" stroke-width="2"/></svg>',
     tree: '<svg class="tree" viewBox="0 0 60 60"><path d="M30 4l-14 22h7l-11 16h9l-9 12h36l-9-12h9L37 26h7z" fill="#8dc63f"/><circle cx="30" cy="6" r="4" fill="#f2b632"/></svg>'
   };
   const put = (el, ...k) => el.replaceChildren(...k.flat(3).filter(x => x != null && x !== false));
@@ -95,7 +97,8 @@
     return { v: 1, nick: names[rnd() * names.length | 0] + " " + (1000 + (rnd() * 9000 | 0)), code: DB.randId(6), xp: 0, big: false, voice: true, onb: false,
       pets: { surucua: newPet() }, sel: "surucua", acc: [], eq: {}, food: { frutinhas: 1 }, boxes: 10, boxSeeded: true, done: {}, ever: {}, photos: 0,
       streak: { last: "", n: 0 }, daily: { day: "", fed: 0, visit: 0, claps: 0, claimed: [] }, clapped: [], gold: false, enfeites: 0, ref: null,
-      exp: null, club: null, clubs: [], week: { id: "", places: [] }, shield: "", talk: {}, myPlaces: [] };
+      exp: null, club: null, clubs: [], week: { id: "", places: [] }, shield: "", talk: {}, myPlaces: [],
+      dex: { found: {}, clue: {} }, met: {}, spawnTaken: {} };
   }
   let S = fresh();
   function loadState() {
@@ -109,6 +112,10 @@
       S.sel = "surucua"; if (!Array.isArray(S.acc)) S.acc = []; if (!S.eq || typeof S.eq !== "object") S.eq = {};
       for (const [k, v] of Object.entries(S.eq)) if (!C.slots[k] || !S.acc.includes(v)) delete S.eq[k];
       S.clapped = Array.isArray(S.clapped) ? S.clapped.slice(-300) : [];
+      if (!S.dex || typeof S.dex !== "object") S.dex = { found: {}, clue: {} };
+      S.dex.found = S.dex.found || {}; S.dex.clue = S.dex.clue || {};
+      if (!S.met || typeof S.met !== "object") S.met = {};
+      if (!S.spawnTaken || typeof S.spawnTaken !== "object") S.spawnTaken = {};
     }
   }
   let wiping = false; // depois de apagar tudo, nada mais é salvo (nem ao sair da página)
@@ -122,6 +129,8 @@
       p.hunger = clamp(p.hunger - 6 * hrs); p.love = clamp(p.love - 3 * hrs); p.joy = clamp(p.joy - 4 * hrs);
       p.sleep = clamp(p.sleep + (night ? 10 : -2) * hrs); p.t = now;
       if (now - p.seen > 48 * HOUR) p.away = true;
+      /* De visita: a ave é livre e volta ao habitat quando a visita acaba. */
+      if (p.visit && now > p.visit.until) { p.away = true; p.home = p.visit.terr; p.visit = null; }
       if (now - p.seen > 24 * HOUR) p.bond = Math.max(1, (p.bond || 1) - hrs / 48);
     }
   }
@@ -235,6 +244,7 @@
         h("span", { class: "ring" + (S.done[m.id] === dayKey() ? " done" : "") }, h("span", { style: { backgroundImage: "url(" + T[m.pet] + ")" } })),
         m.partner.replace("Prefeitura de Miguel Pereira", "Prefeitura").replace(" Bom de Minas", "").replace(" Espetaria", "")))),
       h("div", { class: "hero" }, icon("tree"), h("div", { style: { flex: "1" } }, h("b", { text: "Árvore da cidade" }), count, h("div", { class: "meter" }, meter))),
+      h("div", { style: { padding: "0 .9rem" } }, nearbyBox()),
       h("div", { class: "row", style: { padding: "0 .9rem .7rem" } }, seg("feed", "Feed"), seg("clubes", "Clubes")),
       feedTab === "feed" ? h("div", { class: "wrap" },
         C.flash ? h("div", { class: "flash" }, h("i"), h("span", { text: C.flash.text })) : null,
@@ -267,7 +277,8 @@
   }
   function postCard(p) {
     const m = p.missionId ? byId(p.missionId) : null;
-    if ((p.kind === "mission" && !m) || !SP[p.pet]) return null;
+    const sight = p.kind === "sighting";
+    if ((p.kind === "mission" && !m) || (!sight && !SP[p.pet])) return null;
     let on = S.clapped.includes(p.id), n = (p.claps | 0) + (p.example && on ? 1 : 0);
     const cnt = h("span", { text: n + " aplausos" });
     const btn = h("button", { class: "pillbtn" + (on ? " on" : ""), "aria-pressed": String(on) }, icon("paw"), cnt);
@@ -279,22 +290,26 @@
       if (!p.example) DB.clap(p.id, on).catch(() => toast("Não deu para aplaudir agora"));
     });
     const title = p.kind === "mission" ? m.name + " com o " + petName(p.pet) : (p.title || "Expedição") + (p.kind === "place" ? " com o " + petName(p.pet) : "");
-    const where = p.kind === "mission" ? m.partner : p.kind === "place" ? "Lugar marcado" : C.city;
-    const pets = p.pets && p.pets.length ? p.pets : [p.pet];
-    const stats = [[String(p.xp), "XP"], [String(p.places || 1), (p.places || 1) === 1 ? "lugar" : "lugares"], [String(pets.length), pets.length === 1 ? "pet" : "pets"]];
-    if (p.km > 0) stats.push([fmtKm(p.km), "no centro"]);
+    const where = m && (p.kind === "mission" || p.kind === "checkin" || p.kind === "encounter") ? m.partner : p.kind === "place" ? "Lugar marcado" : C.city;
+    const pets = sight ? [] : p.pets && p.pets.length ? p.pets : [p.pet];
+    const stats = sight ? [] : [[String(p.xp), "XP"], [String(p.places || 1), (p.places || 1) === 1 ? "lugar" : "lugares"], [String(pets.length), pets.length === 1 ? "pet" : "pets"]];
+    if (p.km > 0 && p.kind !== "checkin") stats.push([fmtKm(p.km), "no centro"]);
     if (p.mins > 0) stats.push([fmtMin(p.mins), "tempo"]);
-    const media = p.photo ? h("img", { class: "shot", src: p.photo, alt: "Foto da expedição", loading: "lazy" })
-      : p.route && p.route.length >= 4 ? routeCanvas(p.route) : h("div", { class: "postrow" }, h("img", { src: T[p.pet], alt: petName(p.pet) }));
+    /* Selo do tipo: observação real fica sempre identificável ao lado dos registros de aves virtuais. */
+    const KIND = { checkin: ["Check-in", { background: "var(--gold)", color: "var(--ink)" }], sighting: ["Vi na vida real", null], encounter: ["Ave virtual", { background: "var(--lime)", color: "var(--forest)" }] }[p.kind];
+    const badge = KIND && (!sight || p.real) ? h("span", { class: "tagdark", style: KIND[1], text: KIND[0] }) : null;
+    const extra = p.photos && p.photos.length ? h("small", { style: { color: "var(--mute)" }, text: "+" + p.photos.length + (p.photos.length === 1 ? " foto" : " fotos") }) : null;
+    const media = p.photo ? h("img", { class: "shot", src: p.photo, alt: sight ? "Foto de uma ave de verdade" : "Foto da expedição", loading: "lazy" })
+      : p.route && p.route.length >= 4 ? routeCanvas(p.route) : sight ? null : h("div", { class: "postrow" }, h("img", { src: T[p.pet], alt: petName(p.pet) }), p.kind === "encounter" ? h("span", { text: "Abra a câmera em " + where + " para procurar." }) : null);
     return h("div", { class: "card" },
       h("div", { class: "who" }, h("span", { class: "av", style: { background: colorOf(p.nick) }, text: (p.nick || "?").slice(0, 1).toUpperCase() }),
         h("div", { style: { flex: "1" } }, h("b", { text: p.nick + (p.example ? " (exemplo)" : "") }), h("small", { text: where + " · " + ago(p.createdAt) + (p.clubName ? " · " + p.clubName : "") })),
-        h("button", { class: "morebtn", "aria-label": "Mais opções", on: { click: () => postMenu(p) } }, "⋯")),
+        badge, h("button", { class: "morebtn", "aria-label": "Mais opções", on: { click: () => postMenu(p) } }, "⋯")),
       h("button", { class: "ptitle linkish", on: { click: () => postDetail(p) } }, title),
-      h("div", { class: "stats" }, stats.map(([b, l]) => h("div", null, h("b", { text: b }), h("span", { text: l })))),
-      media,
+      stats.length ? h("div", { class: "stats" }, stats.map(([b, l]) => h("div", null, h("b", { text: b }), h("span", { text: l })))) : null,
+      media, extra,
       p.photo && p.route && p.route.length >= 4 ? routeCanvas(p.route) : null,
-      h("div", { class: "acts" }, btn, h("button", { class: "pillbtn", on: { click: () => { show("map"); if (m) selectPlace(m); } } }, icon("nav"), "Fazer esta rota")));
+      h("div", { class: "acts" }, btn, postDests(p).length ? h("button", { class: "pillbtn", on: { click: () => doThisExpedition(p) } }, icon("nav"), "Fazer esta expedição") : null));
   }
   /* Detalhe estilo Strava: rota, tempo, lugares e pets. */
   function postDetail(p) {
@@ -306,9 +321,10 @@
       h("div", { class: "stats" }, [[p.km > 0 ? fmtKm(p.km) : "—", "distância"], [p.mins > 0 ? fmtMin(p.mins) : "—", "tempo"], [String(p.places || 1), "lugares"], [String(p.xp), "XP"]].map(([b, l]) => h("div", null, h("b", { text: b }), h("span", { text: l })))),
       p.route && p.route.length >= 4 ? routeCanvas(p.route) : null,
       p.photo ? h("img", { class: "shot", src: p.photo, alt: "", style: { marginTop: ".6rem" } }) : null,
+      (p.photos || []).map(ph => h("img", { class: "shot", src: ph, alt: "", style: { marginTop: ".6rem" } })),
       h("div", { class: "petrow" }, pets.map(x => h("img", { src: T[x], alt: petName(x), title: petName(x) })), h("small", { text: pets.length + (pets.length === 1 ? " pet" : " pets") })),
       names.length ? h("p", { class: "demo", style: { textAlign: "left" }, text: "Lugares: " + names.join(", ") }) : null,
-      p.route ? h("p", { class: "demo", style: { textAlign: "left" }, text: "O trajeto aparece sem o começo e o fim, para proteger quem postou." }) : null,
+      p.route ? h("p", { class: "demo", style: { textAlign: "left" }, text: "O trajeto aparece sem os primeiros " + (C.routeHideStartMeters || 200) + " m e sem o final, para proteger quem postou." }) : null,
       p.local ? h("button", { class: "btn", style: { marginTop: ".6rem" }, on: { click: () => tryPublish(post0(p), () => closeSheet()) } }, "Publicar no feed") : null,
       (p.mine || (p.uid && p.uid === DB.uid)) && (p.km > 0 || p.route) ? h("button", { class: "btn red", style: { marginTop: ".6rem" }, on: { click: () => shareExp(p) } }, icon("share"), "Compartilhar expedição") : null);
   }
@@ -489,7 +505,7 @@
       put(fchips, FMTS.map(([k, l]) => h("button", { class: "chip" + (fmt === k ? " on" : ""), on: { click: () => { fmt = k; draw(); } } }, l)));
       put(schips, [["square", "Post 1:1"], ["story", "Story 9:16"]].map(([k, l]) => h("button", { class: "chip" + (size === k ? " on" : ""), on: { click: () => { size = k; draw(); } } }, l)));
       hint.textContent = fmt === "adesivo" ? "Fundo transparente: no Instagram, cole por cima de qualquer foto sua (Stories › adesivo da galeria)."
-        : fmt === "foto" && !photo ? "Escolha uma foto para pôr os dados por cima." : "O trajeto aparece sem o começo e o fim, para proteger onde você mora.";
+        : fmt === "foto" && !photo ? "Escolha uma foto para pôr os dados por cima." : "O trajeto aparece sem os primeiros " + (C.routeHideStartMeters || 200) + " m e sem o final, para proteger onde você mora.";
       prev.classList.toggle("transp", fmt === "adesivo");
       const my = {}; busy = my; cv = await renderShare(p, fmt, size, photo); if (busy !== my) return;
       prev.src = cv.toDataURL(fmt === "adesivo" ? "image/png" : "image/jpeg", .85);
@@ -554,6 +570,33 @@
      ========================================================= */
   let mapMode = "mapa", sel = MISS[0];
   function selectPlace(m) { sel = m; if (cur === "map") renderMap(); }
+  /* Destino escolhido (pelo aviso de proximidade, pela lista ou por "Fazer esta expedição"). A expedição só começa no botão. */
+  let dest = null, nearbyOpen = false;
+  function goDest(m) { closeSheet(); dest = m; sel = m; mapMode = "mapa"; show("map"); }
+  function postDests(p) { const ids = p.missions && p.missions.length ? p.missions : p.missionId ? [p.missionId] : []; return [...new Set(ids)].map(byId).filter(m => m && !m.anywhere); }
+  async function doThisExpedition(p) {
+    const list = postDests(p); if (!list.length) return show("map");
+    let pt = lastPos && lastPos.pt; if (!pt) try { pt = await hereNow(); } catch (_) {}
+    const d = m => pt && m.lat != null ? distTxt(hav(pt, [m.lat, m.lng])) : null;
+    if (list.length === 1) return goDest(list[0]);
+    openSheet(h("h2", { text: "Fazer esta expedição" }), h("p", { class: "demo", style: { textAlign: "left" }, text: "Destinos visitados nesse percurso. Escolha um: você sai de onde está." }),
+      list.map(m => h("button", { class: "opt", on: { click: () => goDest(m) } }, h("span", { class: "num", style: { flex: "none", width: "2.2rem", height: "2.2rem", borderRadius: "50%", background: "var(--red)", color: "#fff", display: "grid", placeItems: "center", fontWeight: "700" }, text: String(pinNo(m)) }),
+        h("span", { style: { flex: "1" } }, h("b", { text: m.partner }), h("br"), h("small", { text: d(m) ? "a " + d(m) + " de você" : m.address || C.city })))));
+  }
+  /* Aviso de proximidade dentro do app: só com a localização já permitida (não pede permissão sozinho). */
+  function nearbyBox() {
+    const box = h("div");
+    if (S.exp || !navigator.geolocation) return box;
+    (async () => {
+      try { if (navigator.permissions) { const ps = await navigator.permissions.query({ name: "geolocation" }); if (ps.state !== "granted") return; } } catch (_) {}
+      let pt; try { pt = await hereNow(120000); } catch (_) { return; }
+      const N = Object.assign({ meters: 300, lines: ["Atenção, hora de olhar ao redor"] }, C.nearby || {}), n = nearestTerr(pt, N.meters); if (!n) return;
+      const line = N.lines[(new Date().getDate() + new Date().getHours()) % N.lines.length];
+      put(box, h("button", { class: "flash nearby", type: "button", on: { click: () => { mapMode = "lista"; nearbyOpen = true; show("map"); } } }, h("i"),
+        h("span", null, h("b", { text: line }), h("br"), h("small", { text: "Tem um lugar do jogo a " + distTxt(n.d) + " de você. Toque para escolher." }))));
+    })();
+    return box;
+  }
   function renderMap() {
     const v = $("v-map"), today = dayKey();
     const lightsAll = MISS.filter(m => m.lights), lightsDone = lightsAll.filter(m => S.done[m.id] === today).length;
@@ -565,13 +608,21 @@
       h("div", { class: "dots" }, lightsAll.map(m => h("i", { class: S.done[m.id] === today ? "on" : "", title: m.name }))),
       h("small", { text: lightsDone + " de " + lightsAll.length + " luzes hoje" + (isNight() ? " · agora vale XP em dobro" : " · depois das " + C.nightFrom + "h vale o dobro") }));
     const placesBox = h("div", null, h("p", { class: "demo", text: "Carregando lugares…" }));
-    const lower = h("div", { class: "wrap" }, expCard(), route, storeCta(),
+    const lower = h("div", { class: "wrap" }, dest && !S.exp ? null : expCard(), route, storeCta(),
       h("div", { class: "sec" }, "Lugares marcados", h("small", { text: "pela galera" })),
       h("button", { class: "btn alt", style: { marginBottom: ".7rem" }, on: { click: markPlace } }, icon("map"), "Marcar um lugar"), placesBox);
-    if (mapMode === "lista") put(v, top, h("div", { class: "wrap" }, MISS.map((m, i) => placeCard(m, i))), lower);
+    const destTop = dest && !S.exp ? h("div", { class: "wrap" }, expCard(dest)) : null;
+    if (mapMode === "lista") {
+      const pt = lastPos && lastPos.pt, dist = m => pt && m.lat != null ? hav(pt, [m.lat, m.lng]) : Infinity;
+      const order = MISS.slice().sort((a, b) => (a.anywhere - b.anywhere) || dist(a) - dist(b));
+      put(v, top, destTop, h("div", { class: "wrap" },
+        nearbyOpen ? h("div", { class: "flash", style: { background: "#fff8e6", borderColor: "#f2d58a" } }, h("i", { style: { background: "var(--gold)" } }), h("span", { text: "Missões mais perto de você. Que bicho aparece? Só lá pra saber." })) : null,
+        order.map(m => placeCard(m, MISS.indexOf(m), pt))), lower);
+      if (!pt) hereNow().then(() => { if (cur === "map" && mapMode === "lista") renderMap(); }).catch(() => {});
+    }
     else if (window.L && tilesOk !== false) {
       const box = h("div", { class: "lmap" });
-      put(v, top, box, h("div", { class: "wrap", style: { paddingTop: ".8rem" } }, mapCards()), lower);
+      put(v, top, destTop, box, h("div", { class: "wrap", style: { paddingTop: ".8rem" } }, mapCards()), lower);
       initMap(box);
     }
     else {
@@ -580,7 +631,7 @@
         MISS.map((m, i) => m.anywhere ? null : h("button", { class: "pin" + (S.done[m.id] === today ? " done" : ""), style: { left: m.mapX * 100 + "%", top: m.mapY * 100 + "%" }, "aria-label": m.name, on: { click: () => selectPlace(m) } },
           h("span", { text: m.partner.replace("Prefeitura de Miguel Pereira", "Pinheiros").replace(" Bom de Minas", "") }), h("i", null, h("b", { text: String(pinNo(m)) })))),
         C.flash ? h("div", { class: "pin flashp", style: { left: C.flash.mapX * 100 + "%", top: (C.flash.mapY * 100 + 6) + "%" } }, h("span", { text: C.flash.name }), h("i", null, h("b", { text: "★" }))) : null);
-      put(v, top, box, h("div", { class: "wrap", style: { paddingTop: ".8rem" } }, mapCards()), lower);
+      put(v, top, destTop, box, h("div", { class: "wrap", style: { paddingTop: ".8rem" } }, mapCards()), lower);
       drawMap(cv);
       loadPlaces().then(list => { if (!C.mapBounds) return; const B = C.mapBounds;
         list.forEach(pl => { const x = (pl.lng - B.west) / (B.east - B.west), y = (B.north - pl.lat) / (B.north - B.south); if (x < 0 || x > 1 || y < 0 || y > 1) return;
@@ -633,7 +684,7 @@
     toast("Mapa real bloqueado (" + why + "). Usando o mapa ilustrado.");
     if (cur === "map") renderMap();
   }
-  function placeCard(m, i) {
+  function placeCard(m, i, pt) {
     const done = S.done[m.id] === dayKey(), xp = m.xp * (m.lights && isNight() ? 2 : 1);
     if (m.anywhere) {
       const prize = C.accessories[accFor(m)];
@@ -647,11 +698,12 @@
     const maps = "https://www.google.com/maps/search/?api=1&query=" + encodeURIComponent(m.address || (m.lat != null ? m.lat + "," + m.lng : m.partner + ", " + C.city + " RJ"));
     return h("div", { class: "card" },
       h("div", { class: "place" + (done ? " done" : "") }, h("span", { class: "num", text: done ? "✓" : String(pinNo(m)) }),
-        h("div", { class: "t" }, h("b", { text: m.partner }), h("br"), h("small", { text: m.task + " · +" + xp + " XP" + (done ? " · feita hoje" : "") }))),
+        h("div", { class: "t" }, h("b", { text: m.partner }), h("br"), h("small", { text: (pt && m.lat != null ? "a " + distTxt(hav(pt, [m.lat, m.lng])) + " · " : "") + m.task + " · +" + xp + " XP" + (done ? " · feita hoje" : "") }))),
       h("div", { class: "row", style: { marginTop: ".6rem" } },
         h("a", { class: "btn alt", href: maps, target: "_blank", rel: "noopener noreferrer" }, icon("nav"), "Como chegar"),
         h("button", { class: "btn", on: { click: () => openCam(m) } }, icon("cam"), "Fazer missão")),
-      m.lat != null ? h("button", { class: "btn alt", style: { marginTop: ".5rem" }, on: { click: () => openSeek(m) } }, "🧭 Procurar com a câmera") : null);
+      m.lat != null ? h("button", { class: "btn alt", style: { marginTop: ".5rem" }, on: { click: () => openSeek(m) } }, "🧭 Procurar com a câmera") : null,
+      mapMode === "lista" && !S.exp ? h("button", { class: "btn alt", style: { marginTop: ".5rem" }, on: { click: () => goDest(m) } }, icon("nav"), "Ir para cá") : null);
   }
   function drawMap(cv) {
     const m = cv.getContext("2d"), W = 700, H = 700;
@@ -668,10 +720,11 @@
      A rota publicada perde o começo e o fim (privacidade) e tem precisão reduzida.
      ========================================================= */
   let watchId = null, expTick = null;
-  function expCard() {
-    if (!S.exp) return h("div", { class: "card expcard" }, h("b", { text: "Expedição" }),
-      h("small", { text: "Marque distância, tempo, lugares e pets do seu passeio, como no Strava." }),
-      h("button", { class: "btn", on: { click: expBegin } }, icon("nav"), "Iniciar expedição"));
+  function expCard(to) {
+    if (!S.exp) return h("div", { class: "card expcard" + (to ? " live" : "") }, h("b", { text: to ? "Destino: " + to.partner : "Expedição" }),
+      h("small", { text: (to && lastPos && to.lat != null ? "A " + distTxt(hav(lastPos.pt, [to.lat, to.lng])) + " de você. " : "") + "A distância conta a partir de “Começar expedição”. Dá para usar o app e a câmera no caminho; para encerrar, volte ao Mapa." }),
+      h("button", { class: "btn", on: { click: expBegin } }, icon("nav"), "Começar expedição"),
+      to ? h("button", { class: "linkbtn", on: { click: () => { dest = null; renderMap(); } } }, "Trocar destino") : null);
     const e = S.exp, mins = Math.round((Date.now() - e.t0) / 6e4);
     return h("div", { class: "card expcard live" }, h("b", { text: "Expedição em andamento" }),
       h("div", { class: "stats" }, [[fmtKm(e.dist / 1000), "distância"], [fmtMin(mins), "tempo"], [String(e.places.length), "lugares"], [String(e.xp), "XP"]].map(([b, l]) => h("div", null, h("b", { text: b }), h("span", { text: l })))),
@@ -679,7 +732,7 @@
       h("button", { class: "btn red", on: { click: expEnd } }, "Encerrar expedição"));
   }
   function expBegin() {
-    S.exp = { t0: Date.now(), dist: 0, pts: [], places: [], missions: [], pets: [], xp: 0, photo: null, lastT: 0 };
+    S.exp = { t0: Date.now(), dist: 0, pts: [], places: [], missions: [], pets: [], xp: 0, photo: null, lastT: 0, dest: dest ? dest.id : null }; dest = null; nearbyOpen = false;
     save(); expWatch(); toast("Expedição começou! Bom passeio."); renderMap();
   }
   function expWatch() {
@@ -701,10 +754,12 @@
     if (e.pts.length > 1500) e.pts = e.pts.filter((_, i) => i % 2 === 0);
     if (e.pts.length % 5 === 0) save();
   }
+  /* Trajeto para o post e para a imagem: sem os primeiros routeHideStartMeters (200 m) e sem o final (routePrivacyMeters).
+     O corte acontece aqui, antes de qualquer gravação ou imagem: o trecho oculto não sai do aparelho. */
   function privateRoute(pts) {
-    const cut = C.routePrivacyMeters;
-    const trim = arr => { let acc = 0, i = 0; while (i < arr.length - 1 && acc < cut) { acc += hav(arr[i], arr[i + 1]); i++; } return arr.slice(i); };
-    let r = trim(trim(pts).reverse()).reverse();
+    const head = C.routeHideStartMeters != null ? C.routeHideStartMeters : C.routePrivacyMeters, tail = C.routePrivacyMeters;
+    const trim = (arr, cut) => { let acc = 0, i = 0; while (i < arr.length - 1 && acc < cut) { acc += hav(arr[i], arr[i + 1]); i++; } return acc >= cut ? arr.slice(i) : []; };
+    let r = trim(trim(pts, head).reverse(), tail).reverse();
     const step = Math.max(1, Math.ceil(r.length / 110)); r = r.filter((_, i) => i % step === 0);
     return r.length >= 2 ? r.flatMap(q => [+q[0].toFixed(4), +q[1].toFixed(4)]) : null;
   }
@@ -719,11 +774,41 @@
     if (watchId !== null) navigator.geolocation.clearWatch(watchId); watchId = null; clearInterval(expTick);
     const mins = Math.max(1, Math.round((Date.now() - e.t0) / 6e4)), km = e.dist / 1000;
     S.exp = null; save();
-    if (!e.places.length && km < .1) { toast("Expedição curta demais: nada foi postado"); return renderMap(); }
-    const post = { kind: "expedition", nick: S.nick, title: autoTitle(e), missions: e.missions, pet: e.pets[0] || S.sel, pets: e.pets.length ? e.pets : [S.sel],
-      xp: e.xp, km, mins, places: e.places.length, photo: e.photo, route: privateRoute(e.pts), club: S.club, clubName: clubName() };
-    draft = post;
-    renderMap(); postDetail(Object.assign({ uid: DB.uid, mine: true, local: true, createdAt: Date.now(), claps: 0 }, post));
+    /* Menos de checkinMeters: vira check-in do lugar visitado, sem trilha pública. */
+    const checkin = e.dist < (C.checkinMeters || 200);
+    const lastPt = e.pts[e.pts.length - 1], near = lastPt ? nearestTerr(lastPt, 300) : null;
+    const placeM = byId(e.missions[e.missions.length - 1]) || (e.dest && byId(e.dest)) || (near && near.m) || null;
+    const base = { nick: S.nick, pet: e.pets[0] || S.sel, pets: e.pets.length ? e.pets : [S.sel], xp: e.xp, km, mins, places: checkin ? 1 : e.places.length, club: S.club, clubName: clubName() };
+    const post = checkin
+      ? Object.assign(base, { kind: "checkin", title: "Check-in em " + (placeM ? placeM.partner : C.city), missionId: placeM && !placeM.anywhere ? placeM.id : undefined, missions: placeM ? [placeM.id] : [] })
+      : Object.assign(base, { kind: "expedition", title: autoTitle(e), missions: e.missions, route: privateRoute(e.pts) });
+    if (!post.missionId) delete post.missionId;
+    renderMap(); expSummary(post);
+  }
+  /* Resumo depois de encerrar: dados do percurso primeiro; fotos da galeria e publicação são opcionais. */
+  function expSummary(post) {
+    const photos = [], thumbs = h("div", { class: "pickgrid" });
+    const file = h("input", { type: "file", accept: "image/*", style: { display: "none" } }); file.multiple = true;
+    const drawThumbs = () => put(thumbs, photos.length ? photos.map((ph, i) => h("div", { class: "pick" }, h("img", { src: ph, alt: "Foto " + (i + 1) }),
+      h("button", { class: "care-close", "aria-label": "Tirar foto " + (i + 1), on: { click: () => { photos.splice(i, 1); drawThumbs(); } } }, "×")))
+      : h("div", { class: "photoslot", style: { minHeight: "6rem", cursor: "default" }, text: "Nenhuma foto escolhida" }));
+    file.addEventListener("change", async () => {
+      for (const f of [...file.files].slice(0, 4 - photos.length)) { if (!/^image\//.test(f.type) || f.size > 25e6) continue; const t = await thumbOf(f, 540, photos.length ? 90000 : 150000); if (t) photos.push(t); }
+      file.value = ""; drawThumbs();
+    });
+    drawThumbs();
+    const ck = post.kind === "checkin";
+    const withPhotos = () => { const o = Object.assign({}, post); if (photos[0]) o.photo = photos[0]; if (photos.length > 1) o.photos = photos.slice(1); return o; };
+    openSheet(h("h2", { text: ck ? post.title : "Expedição encerrada" }),
+      h("div", { class: "stats" }, [[fmtKm(post.km), "distância"], [fmtMin(post.mins), "tempo"], [String(post.places), "lugares"], [String(post.xp), "XP"]].map(([b, l]) => h("div", null, h("b", { text: b }), h("span", { text: l })))),
+      h("div", { class: "card okbar" }, ck ? h("span", null, h("b", { text: "Check-in, sem trilha. " }), "Você andou menos de " + (C.checkinMeters || 200) + " m.")
+        : h("span", null, h("b", { text: "Contado desde “Começar expedição”. " }), "No post e na imagem, os primeiros " + (C.routeHideStartMeters || 200) + " m do trajeto ficam ocultos.")),
+      !ck && post.route ? routeCanvas(post.route) : null,
+      h("div", { class: "sec" }, "Fotos", h("small", { text: "opcional · até 4" })), thumbs, file,
+      h("button", { class: "btn alt", style: { marginBottom: ".5rem" }, on: { click: () => file.click() } }, "Escolher fotos da galeria"),
+      h("button", { class: "btn", style: { marginBottom: ".5rem" }, on: { click: () => tryPublish(withPhotos(), () => closeSheet()) } }, icon("share"), "Publicar no feed"),
+      !ck && (post.km > 0 || post.route) ? h("button", { class: "btn red", style: { marginBottom: ".5rem" }, on: { click: () => shareExp(Object.assign({ createdAt: Date.now(), mine: true }, withPhotos())) } }, "Compartilhar expedição") : null,
+      h("button", { class: "linkbtn", style: { display: "block", margin: "0 auto" }, on: { click: closeSheet } }, "Agora não"));
   }
   function LS_wait() { DB.LS.set("lastPost", 0); }
   function companionSheet(cb, label) {
@@ -881,7 +966,13 @@
   }
   function pickMission() {
     const today = dayKey(), next = MISS.find(m => S.done[m.id] !== today);
-    openSheet(h("h2", { text: "Qual missão?" }), MISS.map(m => h("button", { class: "opt", on: { click: () => { closeSheet(); openCam(m); } } },
+    openSheet(h("h2", { text: "Câmera" }),
+      h("button", { class: "opt", on: { click: () => openSearch() } }, h("span", { style: { fontSize: "1.6rem" }, "aria-hidden": "true", text: "👀" }),
+        h("span", { style: { flex: "1" } }, h("b", { text: "Olhar ao redor aqui" }), h("br"), h("small", { text: "Num lugar do jogo, procure a ave que mora ali" }))),
+      h("button", { class: "opt", on: { click: () => openReal() } }, h("span", { style: { fontSize: "1.6rem" }, "aria-hidden": "true", text: "🐦" }),
+        h("span", { style: { flex: "1" } }, h("b", { text: "Fotografar uma ave de verdade" }), h("br"), h("small", { text: "Vi na vida real" }))),
+      h("div", { class: "sec" }, "Missões"),
+      MISS.map(m => h("button", { class: "opt", on: { click: () => { closeSheet(); openCam(m); } } },
       h("img", { src: T[m.pet], alt: "", style: { width: "2.6rem", height: "2.6rem" } }),
       h("span", { style: { flex: "1" } }, h("b", { text: m.name }), h("br"), h("small", { text: m.partner + (S.done[m.id] === today ? " · feita hoje" : "") })),
       m === next ? h("span", { class: "coupon", style: { margin: "0" }, text: "Próxima" }) : null)));
@@ -892,7 +983,7 @@
     if (m.tag && !free && window.THREE) return startTag(m);
     const xp = m.xp * (m.lights && isNight() ? 2 : 1);
     $("camlabel").textContent = m.name + " · +" + xp + " XP" + (m.lights && isNight() ? " 🌙" : "");
-    $("camxp").textContent = S.done[m.id] === dayKey() ? "Já valeu hoje" : "";
+    $("camxp").textContent = S.done[m.id] === dayKey() ? "Já valeu hoje" : S.exp ? "Expedição · " + fmtKm(S.exp.dist / 1000) : "";
     $("camhint").textContent = "Um " + petName(m.pet) + " apareceu! Arraste para posicionar e tire a foto.";
     renderMissionChat(m);
     $("v-cam").classList.add("on"); overlayOpened();
@@ -908,6 +999,238 @@
       toast("Sem câmera: use a Galeria ou permita a câmera");
     }
   }
+
+  /* =========================================================
+     BUSCA NO TERRITÓRIO E ENCONTRO (sem tag, sem expedição)
+     A localização do lugar cadastrado libera a busca. A posição não é salva nem enviada.
+     Estados: buscando → triste (achou, cabisbaixo) → pedido (percebeu você, aviso no chat)
+              → aceite (canta) → levou (Jardim, só pela segunda ação) | recusa (despedida, pode mudar de ideia)
+              reencontro (hipótese): a ave que já visitou o Jardim reconhece a pessoa.
+     ========================================================= */
+  const E = Object.assign({ radiusMeters: 120, visitHours: 2, feedExtraHours: 1, recognizeAfterGardenVisit: true,
+    lines: { ask: "Me leve com você", bye: "Tudo bem… fico por aqui. Tchau!", back: "Oi, você voltou!" } }, C.encounter || {});
+  const TERR = () => MISS.filter(m => !m.anywhere && m.lat != null && m.lng != null);
+  let lastPos = null; // { pt, t } só na memória, para ordenar a lista e o aviso de proximidade
+  async function hereNow(maxAge) {
+    if (lastPos && Date.now() - lastPos.t < (maxAge || 0)) return lastPos.pt;
+    const p = await getPos(); lastPos = { pt: [p.latitude, p.longitude], t: Date.now() }; return lastPos.pt;
+  }
+  function nearestTerr(pt, max) {
+    return TERR().map(m => ({ m, d: hav(pt, [m.lat, m.lng]) })).filter(x => x.d <= max).sort((a, b) => a.d - b.d)[0] || null;
+  }
+  const distTxt = d => d < 20 ? "menos de 20 m" : d >= 1000 ? (d / 1000).toLocaleString("pt-BR", { maximumFractionDigits: 1 }) + " km" : Math.round(d / 10) * 10 + " m";
+  async function openSearch() {
+    closeSheet();
+    let pt;
+    try { pt = await hereNow(); } catch (_) {
+      return openSheet(h("h2", { text: "Ative a localização" }),
+        h("p", { text: "A busca abre quando você está num lugar do jogo. A localização fica no aparelho: não é salva nem enviada." }),
+        h("button", { class: "btn alt", on: { click: closeSheet } }, "Entendi"));
+    }
+    const near = nearestTerr(pt, E.radiusMeters);
+    if (!near) return openSheet(h("h2", { text: "Nenhum lugar do jogo aqui" }),
+      h("p", { text: "A busca abre perto de um lugar cadastrado, como as lojas com o adesivo do jogo. Veja os mais perto de você." }),
+      h("button", { class: "btn", on: { click: () => { closeSheet(); mapMode = "lista"; show("map"); } } }, icon("map"), "Ver lugares perto"));
+    startEncounter(near.m);
+  }
+  let enc = null;
+  function startEncounter(m) {
+    stopMissionSpeech(); closeSheet();
+    const sp = m.pet, p = S.pets[sp], day = dayKey();
+    const visiting = p && p.visit && !p.away && p.visit.until > Date.now();
+    const knows = !!(E.recognizeAfterGardenVisit && p && (p.gardenVisits || 0) > 0);
+    camM = null; bgImg = null;
+    enc = { m, sp, state: "buscando", chat: false, unread: false, knows, visiting, alm: null, timers: [], foods: [] };
+    const vc = $("v-cam"); vc.classList.add("on", "enc"); overlayOpened();
+    $("camlabel").textContent = "Olhe ao redor · " + m.partner;
+    $("camxp").textContent = S.exp ? "Expedição · " + fmtKm(S.exp.dist / 1000) : "";
+    vc.querySelector(".camctl").prepend(h("div", { id: "encact" }));
+    drawFallback(); startAR(sp);
+    if (ar && ar.pet) { ar.pet.visible = false; Pets.pose(ar.pet, "triste"); ar.onTap = encTap; ar.y0 = -.25; } // um pouco mais alto: as ações ficam embaixo, fora da ave
+    else if (ar && ar.img) ar.img.style.visibility = "hidden";
+    camStream().then(() => { if (!$("v-cam").classList.contains("on")) return stopStream(); $("fallback").style.display = "none"; })
+      .catch(() => { $("fallback").style.display = "block"; toast("Sem câmera: permita a câmera para procurar"); });
+    encDraw();
+    encFoods(m);
+    if (visiting) { encSet("vazio"); return; }
+    /* A câmera "acha" a ave depois de alguns segundos olhando o lugar. */
+    enc.timers.push(setTimeout(() => encFound(), 2200));
+  }
+  function encShowBird(on) { if (!ar) return; if (ar.pet) ar.pet.visible = on; if (ar.img) ar.img.style.visibility = on ? "visible" : "hidden"; }
+  function encFound() {
+    if (!enc) return;
+    encShowBird(true);
+    const id = enc.m.id + "|" + enc.sp;
+    if (S.met[id] !== dayKey()) { S.met[id] = dayKey(); DB.markFound(enc.m.id, enc.sp).catch(() => {}); }
+    S.dex.found[enc.sp] = true; delete S.dex.clue[enc.sp]; save();
+    if (enc.knows) { encSet("reenc"); return; }
+    encSet("triste");
+    /* Ao perceber o jogador (ou ao toque), ergue a cabeça e as asas e manda a mensagem. */
+    enc.timers.push(setTimeout(() => { if (enc && enc.state === "triste") encSet("pedido"); }, 1800));
+  }
+  function encTap() {
+    if (!enc) return;
+    if (enc.state === "triste") return encSet("pedido");
+    if (enc.state === "aceite" || enc.state === "reenc" || enc.state === "levou") { if (ar && ar.pet) sing(ar.pet); }
+  }
+  function encSet(st) {
+    if (!enc) return;
+    enc.state = st;
+    const pet = ar && ar.pet;
+    if (st === "triste" || st === "recusa") { if (pet) Pets.pose(pet, "triste"); }
+    if (st === "pedido") { if (pet) Pets.pose(pet, "pedido"); enc.unread = true; enc.chat = false; }
+    if (st === "recusa") { enc.unread = true; enc.chat = false; }
+    if (st === "aceite") { enc.chat = false; enc.unread = false; if (pet) { Pets.pose(pet, null); Pets.play(pet, "feliz"); songOnly(); enc.timers.push(setTimeout(() => ar && ar.pet && Pets.play(ar.pet, "canto"), 1000)); } }
+    if (st === "reenc") { enc.unread = true; enc.chat = false; if (pet) { Pets.pose(pet, null); Pets.play(pet, "curioso"); } }
+    encDraw();
+  }
+  function encDraw() {
+    if (!enc) return;
+    const L = E.lines, st = enc.state;
+    const speakBtn = txt => h("button", { class: "speak", type: "button", on: { click: () => { stopMissionSpeech(); speak(txt, 1.3, true); } } }, icon("speaker"), "Ouvir o texto");
+    const bubble = (txt, listen) => h("div", { class: "bubble" },
+      h("b", { style: { display: "flex", alignItems: "center", gap: ".35rem" } }, h("img", { src: T[enc.sp], alt: "", class: "bubav" }), petName(enc.sp)),
+      txt, h("div", { class: "meta", text: new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }) }), listen ? speakBtn(txt) : null);
+    const me = txt => h("div", { class: "bubble", style: { justifySelf: "end", background: "#fff", borderRadius: ".9rem 0 .9rem .9rem" }, text: txt });
+    const qr = (txt, fn) => h("button", { class: "qr", type: "button", on: { click: fn } }, txt);
+    const toggle = h("button", { class: "mission-chat-toggle", type: "button", "aria-label": enc.chat ? "Ocultar mensagens" : "Mostrar mensagens", "aria-expanded": String(enc.chat),
+      on: { click: () => { enc.chat = !enc.chat; enc.unread = false; if (!enc.chat) stopMissionSpeech(); encDraw(); } } },
+      icon("chat"), enc.unread && !enc.chat ? h("span", { class: "chat-notice", "aria-hidden": "true" }) : null);
+    let body = null;
+    if (enc.chat) {
+      if (st === "pedido") body = [bubble(L.ask, true), h("div", { class: "qrs" }, qr("Sim, vou te levar", () => encSet("aceite")), qr("Agora não", () => encSet("recusa")))];
+      else if (st === "aceite" || st === "levou") body = [me("Sim, vou te levar"), bubble("♪ ♫", false)];
+      else if (st === "recusa") body = [me("Agora não"), bubble(L.bye, true), h("div", { class: "qrs" }, qr("Mudei de ideia", () => { encSet("pedido"); enc.chat = true; enc.unread = false; encDraw(); }))];
+      else if (st === "reenc") body = [bubble(L.back, true)];
+      else if (st === "vazio") body = [bubble("Tô no seu Jardim agora! Aqui ficou a comida pra quando eu voltar.", true)];
+      else body = [h("div", { class: "bubble", style: { background: "#fff" }, text: "Sem mensagens por enquanto." })];
+    }
+    const alm = enc.alm ? h("button", { class: "mission-chat-toggle almblink", type: "button", "aria-label": "Almanaque: espécie nova revelada",
+      on: { click: () => { const id = enc.alm; closeCam(); profTab = "alm"; show("profile"); ficha(id); } } }, icon("book"), h("span", { class: "chat-notice", "aria-hidden": "true" })) : null;
+    put($("chat"), h("div", { style: { display: "flex", gap: ".5rem", justifyContent: "flex-end" } }, alm, toggle), body);
+    /* Ações embaixo, fora da área do passarinho. Tirar foto = obturador. */
+    const act = $("encact"); if (!act) return;
+    const known = st === "reenc";
+    put(act,
+      st === "reenc" ? h("p", { class: "camhint", style: { margin: "0 0 .5rem" } }, h("span", { class: "tagdark", style: { background: "#fff", color: "var(--red)" }, text: "♥ Lembrou de você" })) : null,
+      (st === "aceite" || known) ? h("button", { class: "btn", style: { marginBottom: ".6rem" }, on: { click: encTakeHome } }, icon("garden"), "Levar para o Jardim") : null,
+      st === "levou" ? h("button", { class: "btn alt", style: { marginBottom: ".6rem", background: "#fff" }, on: { click: () => { closeCam(); show("garden"); } } }, "Ver no Jardim") : null,
+      st === "recusa" ? h("div", { style: { display: "grid", gap: ".5rem", marginBottom: ".6rem" } },
+        h("button", { class: "btn", on: { click: () => { encSet("pedido"); enc.chat = true; enc.unread = false; encDraw(); } } }, "Mudei de ideia"),
+        h("button", { class: "btn alt", style: { background: "#fff" }, on: { click: encWarnFeed } }, "Avisar no feed que tem uma ave aqui")) : null);
+    $("camhint").textContent = { buscando: "Gire devagar com a câmera e olhe ao redor…", triste: "Achou! Ele parece triste.", pedido: enc.chat ? "Responda no chat" : "Ele te viu! Tem mensagem pra você.",
+      aceite: "Ele cantou pra você! Tire uma foto ou leve para o Jardim.", levou: "Ele vai te esperar no Jardim.", recusa: "Ele continua aqui, cabisbaixo.",
+      reenc: "Ele já visitou seu Jardim e lembrou de você.", vazio: "O " + petName(enc.sp) + " está de visita no seu Jardim." }[st] || "";
+  }
+  function encTakeHome() {
+    if (!enc) return;
+    const p = S.pets[enc.sp] || (S.pets[enc.sp] = newPet());
+    p.away = false; p.home = null; p.seen = Date.now(); p.love = clamp(p.love + 10);
+    p.visit = { until: Date.now() + E.visitHours * HOUR, terr: enc.m.id }; p.gardenVisits = (p.gardenVisits || 0) + 1;
+    S.sel = enc.sp; save();
+    enc.knows = true; encSet("levou");
+    toast("O " + petName(enc.sp) + " foi para o seu Jardim");
+  }
+  function encWarnFeed() {
+    if (!enc) return;
+    tryPublish({ kind: "encounter", nick: S.nick, missionId: enc.m.id, pet: enc.sp, pets: [enc.sp], xp: 0, places: 1, title: "Tem uma ave virtual no " + enc.m.partner, club: S.club, clubName: clubName() });
+  }
+  /* Comida no território: a da própria espécie aparece na revisita; a de outras espécies aparece
+     quando alguém já encontrou a ave daquela espécie ali (descoberta compartilhada). Uma de cada por dia. */
+  async function encFoods(m) {
+    let spawns = [];
+    try { spawns = await DB.listSpawns(m.id); } catch (_) {}
+    if (!enc || enc.m !== m) return;
+    const day = dayKey(), species = new Set(spawns.filter(sp => SP[sp]));
+    if (S.met[m.id + "|" + m.pet]) species.add(m.pet); // revisita: comida da ave que mora ali
+    const box = $("v-cam");
+    [...species].forEach((sp, i) => {
+      const key = m.id + "|" + sp, food = SP[sp].fav; if (S.spawnTaken[key] === day || !C.foods[food]) return;
+      const b = h("button", { class: "encfood", type: "button", "aria-label": "Pegar " + C.foods[food].label, style: { left: (22 + i * 26) % 80 + "%", top: (52 + (i % 2) * 8) + "%" } },
+        h("span", { class: "fruit", style: { background: "radial-gradient(circle at 35% 30%, #fff8 0 12%, " + C.foods[food].color + " 13% 100%)" } }));
+      b.addEventListener("click", () => encCollect(sp, key, b));
+      box.append(b); enc.foods.push(b);
+    });
+  }
+  function encCollect(sp, key, el) {
+    const food = SP[sp].fav; el.remove();
+    S.spawnTaken[key] = dayKey(); S.food[food] = (S.food[food] || 0) + 1;
+    const other = enc && sp !== enc.sp, isNew = other && !S.dex.found[sp] && !S.pets[sp] && !S.dex.clue[sp];
+    if (isNew) { S.dex.clue[sp] = enc.m.id; enc.alm = sp; encDraw(); }
+    save();
+    toast("+1 " + C.foods[food].label + (other ? (isNew ? " · nova espécie no Almanaque!" : " · de outra ave") : ""));
+  }
+  function stopEncounter() {
+    if (!enc) return;
+    enc.timers.forEach(clearTimeout); enc.foods.forEach(b => b.remove());
+    const a = $("encact"); if (a) a.remove();
+    $("v-cam").classList.remove("enc"); enc = null;
+  }
+
+  /* =========================================================
+     VI NA VIDA REAL: câmera sem ave virtual para fotografar uma ave de verdade.
+     ========================================================= */
+  let real = false;
+  async function openReal() {
+    closeSheet(); stopMissionSpeech(); camM = null; bgImg = null; real = true;
+    const vc = $("v-cam"); vc.classList.add("on", "real"); overlayOpened();
+    stopAR(); $("arcv").style.display = "none";
+    $("camlabel").textContent = "Ave de verdade";
+    $("camxp").textContent = S.exp ? "Expedição · " + fmtKm(S.exp.dist / 1000) : "";
+    $("camhint").textContent = "Fotografe de longe, sem assustar a ave.";
+    put($("chat"));
+    drawFallback();
+    try { await camStream(); if (!vc.classList.contains("on")) return stopStream(); $("fallback").style.display = "none"; }
+    catch (_) { $("fallback").style.display = "block"; toast("Sem câmera: use a Galeria"); }
+  }
+  /* Foto da câmera (vídeo + ave em RA, se houver), do tamanho da tela. */
+  async function grabFrame() {
+    const vw = innerWidth, vh = innerHeight, W = 1080, H = Math.min(1920, Math.round(W * vh / vw));
+    const cv = h("canvas", { width: W, height: H }), c = cv.getContext("2d"), vid = $("vid");
+    if (stream && vid.videoWidth) { if (camFacing === "user") { c.save(); c.translate(W, 0); c.scale(-1, 1); cover(c, vid, W, H); c.restore(); } else cover(c, vid, W, H); }
+    else cover(c, bgImg || $("fallback"), W, H);
+    if (!real) {
+      if (ar && ar.r && (!ar.pet || ar.pet.visible)) { ar.r.render(ar.sc, ar.camera); c.drawImage($("arcv"), 0, 0, W, H); }
+      else if (ar && ar.img && ar.img.complete && ar.img.style.visibility !== "hidden") { const s = W * .45; c.drawImage(ar.img, (W - s) / 2, H * .6, s, s); }
+    }
+    return new Promise(ok => cv.toBlob(ok, "image/jpeg", .86));
+  }
+  /* Foto do encontro: Stories, feed ou Jardim (ações separadas). */
+  async function encPhoto(blob) {
+    const e = enc, m = e.m, sp = e.sp, canHome = e.state === "aceite" || e.state === "reenc";
+    if (lastPhoto) URL.revokeObjectURL(lastPhoto.url);
+    const sm = { id: "enc-" + m.id, name: petName(sp) + " no " + m.partner, pet: sp, xp: 0 };
+    lastPhoto = { blob, url: URL.createObjectURL(blob), m: sm };
+    const thumb = await thumbOf(blob, 540, 150000);
+    if (S.exp && thumb) { S.exp.pets.includes(sp) || S.exp.pets.push(sp); save(); }
+    openSheet(h("div", { class: "reward" },
+      h("img", { class: "storyprev", src: lastPhoto.url, alt: "Sua foto com o " + petName(sp) }),
+      h("p", { style: { fontWeight: "700", margin: ".2rem 0" }, text: "Foto com o " + petName(sp) }),
+      h("div", { style: { display: "grid", gap: ".5rem", marginTop: ".6rem" } },
+        h("button", { class: "btn red", on: { click: () => shareStory(sm, "Encontro") } }, icon("share"), "Postar nos Stories"),
+        h("button", { class: "btn", on: { click: () => tryPublish({ kind: "encounter", nick: S.nick, missionId: m.id, pet: sp, pets: [sp], xp: 0, places: 1, photo: thumb, title: petName(sp) + " apareceu no " + m.partner, club: S.club, clubName: clubName() }) } }, "Publicar no feed"),
+        h("button", { class: "btn alt", on: { click: () => download(blob, "encontro-" + m.id + ".jpg") } }, "Baixar foto"),
+        canHome ? h("button", { class: "btn alt", on: { click: () => { closeSheet(); encTakeHome(); } } }, icon("garden"), "Levar para o Jardim") : null)));
+  }
+  /* Foto de ave real: publicar é opcional e pede a marca "Vi na vida real". */
+  async function realPhoto(blob) {
+    if (lastPhoto) URL.revokeObjectURL(lastPhoto.url);
+    lastPhoto = { blob, url: URL.createObjectURL(blob), m: null };
+    const thumb = await thumbOf(blob, 540, 150000);
+    const mark = h("input", { type: "checkbox", id: "realok", checked: true });
+    const name = h("input", { type: "text", maxLength: 40, placeholder: "Qual ave? (se souber)", autocomplete: "off" });
+    openSheet(h("h2", { text: "Ave de verdade" }), h("img", { class: "shot", src: lastPhoto.url, alt: "Sua foto" }),
+      h("label", { class: "consent", htmlFor: "realok" }, mark, h("span", null, h("b", { text: "Vi na vida real" }), " · foto minha de uma ave de verdade")),
+      name,
+      h("button", { class: "btn", style: { marginTop: ".5rem" }, on: { click: () => {
+        if (!mark.checked) return toast("Marque “Vi na vida real” para publicar a observação");
+        const n = DB.cleanName(name.value, 40);
+        tryPublish({ kind: "sighting", real: true, nick: S.nick, pet: "ave-real", xp: 0, places: 1, photo: thumb, title: n ? n + " · vi na vida real" : "Vi na vida real", club: S.club, clubName: clubName() });
+      } } }, "Publicar no feed"),
+      h("button", { class: "btn alt", style: { marginTop: ".5rem" }, on: { click: () => download(blob, "ave-real.jpg") } }, "Baixar foto"),
+      h("p", { class: "demo" }, "Para registrar a observação para a ciência, use o ", h("a", { href: "https://www.inaturalist.org/observations/upload", target: "_blank", rel: "noopener noreferrer" }, "iNaturalist"), "."));
+  }
+
   /* Câmera de trás ou de selfie (frontal). A selfie aparece espelhada, como um espelho, e a foto sai igual à tela. */
   let camFacing = "environment";
   async function camStream() {
@@ -1115,7 +1438,7 @@
     } catch (_) { $("fallback").style.display = "block"; drawFallback(); }
   }
   function stopStream() { if (stream) stream.getTracks().forEach(t => t.stop()); stream = null; $("vid").srcObject = null; }
-  function closeCam() { stopMissionSpeech(); stopTag(); stopSeek(); stopStream(); stopAR(); $("v-cam").classList.remove("on"); missionChatOpen = false; missionChatMission = null; put($("chat")); overlayClosed(); }
+  function closeCam() { stopMissionSpeech(); stopEncounter(); real = false; $("v-cam").classList.remove("real"); stopTag(); stopSeek(); stopStream(); stopAR(); $("v-cam").classList.remove("on"); missionChatOpen = false; missionChatMission = null; put($("chat")); overlayClosed(); }
   function drawFallback() {
     const cv = $("fallback"), c = cv.getContext("2d"), W = cv.width, H = cv.height;
     if (bgImg) { cover(c, bgImg, W, H); return; }
@@ -1156,7 +1479,7 @@
       let drag = null;
       cv.onpointerdown = e => { if (!e.isPrimary) { drag = null; return; } drag = { x: e.clientX, y: e.clientY, px: pet.position.x, py: ar.y0, moved: false }; };
       cv.onpointermove = e => { if (!drag) return; const k = 6 / cv.clientHeight; pet.position.x = Math.max(-1.8, Math.min(1.8, drag.px + (e.clientX - drag.x) * k)); ar.y0 = Math.max(-1.6, Math.min(1.2, drag.py - (e.clientY - drag.y) * k)); drag.moved = drag.moved || Math.abs(e.clientX - drag.x) + Math.abs(e.clientY - drag.y) > 8; };
-      cv.onpointerup = () => { if (drag && !drag.moved) sing(pet); drag = null; };
+      cv.onpointerup = () => { if (drag && !drag.moved) { if (ar && ar.onTap) ar.onTap(); else sing(pet); } drag = null; };
       cv.style.display = "block";
     } catch (_) {
       ar = { img: h("img", { src: T[petId], alt: petName(petId), class: "arimg" }) };
@@ -1194,7 +1517,15 @@
   }
   let shooting = false;
   async function shoot() {
-    if (!camM || shooting) return;
+    if (shooting) return;
+    if (enc || real) {
+      shooting = true;
+      try { const blob = await grabFrame(); if (!blob) return toast("Não deu para tirar a foto");
+        if (real) { closeCam(); realPhoto(blob); } else await encPhoto(blob); }
+      finally { shooting = false; }
+      return;
+    }
+    if (!camM) return;
     shooting = true;
     try {
       if (!(tag && tag.found) && !(await nearEnough(camM))) { toast("Chegue mais perto de " + camM.partner + " para valer"); return; }
@@ -1311,7 +1642,7 @@
   }
 
   /* Story 1080×1920 com a foto, o selo da missão e o QR de convite. Gerado no aparelho. */
-  async function shareStory(m) {
+  async function shareStory(m, label) {
     if (!lastPhoto) return;
     const W = 1080, H = 1920, cv = h("canvas", { width: W, height: H }), c = cv.getContext("2d");
     c.fillStyle = "#f7f2e5"; c.fillRect(0, 0, W, H);
@@ -1327,7 +1658,7 @@
     c.fillStyle = "#fff"; roundRect(c, 100, 1600, q + 40, q + 40, 24); c.fill(); c.fillStyle = "#111";
     for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) if (qr.isDark(y, x)) c.fillRect(120 + x * cell, 1620 + y * cell, Math.ceil(cell), Math.ceil(cell));
     c.fillStyle = "#fff";
-    fit(c, S.done[m.id] === dayKey() ? "+" + m.xp + " XP" : "Expedição", 400, 1655, 580, 64, 700);
+    fit(c, label || (S.done[m.id] === dayKey() ? "+" + m.xp + " XP" : "Expedição"), 400, 1655, 580, 64, 700);
     fit(c, m.name, 400, 1715, 580, 40, 500);
     fit(c, "com o " + petName(m.pet), 400, 1765, 580, 40, 500);
     c.globalAlpha = .85; fit(c, "Jogue comigo: " + S.code, 400, 1822, 580, 34, 500); c.globalAlpha = 1;
@@ -1390,10 +1721,17 @@
         h("button", { class: "gar", "aria-pressed": "false", "aria-label": "Ver o surucuá no mundo real", on: { click: toggleGardenAR } }, icon("cam"), "Mundo real"),
         h("button", { class: "mic", on: { click: talk } }, icon("mic"), "Falar")));
     if (p.away) {
-      const home = MISS.find(m => m.pet === S.sel) || MISS[0];
-      garden.append(h("div", { class: "awaycard" }, h("img", { src: T[S.sel], alt: "" }), h("h3", { text: "O " + petName(S.sel) + " foi passear" }),
-        h("p", { text: "Ele deixou um bilhete: \"Tô perto de " + home.partner + " esperando você. Faz uma missão que eu volto!\"" }),
-        h("button", { class: "btn", on: { click: () => { show("map"); selectPlace(home); } } }, icon("nav"), "Buscar no mapa")));
+      const hab = p.home && byId(p.home), home = hab || MISS.find(m => m.pet === S.sel) || MISS[0];
+      garden.append(hab
+        ? h("div", { class: "awaycard" }, h("img", { src: T[S.sel], alt: "" }), h("h3", { text: "O " + petName(S.sel) + " voltou para o habitat" }),
+          h("p", { text: "Ele é livre: visitou o Jardim e voltou para perto de " + hab.partner + ". Vá até lá e abra a câmera para revê-lo e ganhar comida." }),
+          h("button", { class: "btn", on: { click: () => { show("map"); selectPlace(hab); } } }, icon("nav"), "Ver no mapa"))
+        : h("div", { class: "awaycard" }, h("img", { src: T[S.sel], alt: "" }), h("h3", { text: "O " + petName(S.sel) + " foi passear" }),
+          h("p", { text: "Ele deixou um bilhete: \"Tô perto de " + home.partner + " esperando você. Faz uma missão que eu volto!\"" }),
+          h("button", { class: "btn", on: { click: () => { show("map"); selectPlace(home); } } }, icon("nav"), "Buscar no mapa")));
+    } else if (p.visit) {
+      const t = new Date(p.visit.until).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }), hab = byId(p.visit.terr);
+      garden.append(h("div", { class: "visitchip" }, h("span", { class: "gchip", text: "De visita · volta " + (hab ? "para perto de " + hab.partner.replace(" Bom de Minas", "") + " " : "ao habitat ") + "às " + t })));
     }
     put(v, garden);
     G = { say, careNotice, carePanel, careRows, garden, careOpen: false };
@@ -1723,7 +2061,10 @@
   }
   function feed(k) {
     const p = S.pets[S.sel]; if (!(S.food[k] > 0)) return;
+    const hungry = p.hunger < CARE_THRESHOLDS.hunger;
     S.food[k]--; const fav = SP[S.sel].fav === k;
+    /* Com fome, comer faz a ave ficar mais tempo de visita no Jardim. */
+    if (hungry && p.visit) { p.visit.until = Math.max(p.visit.until, Date.now()) + E.feedExtraHours * HOUR; setTimeout(() => toast("Ele vai ficar mais um pouco no Jardim"), 1400); }
     p.hunger = clamp(p.hunger + (fav ? 45 : 30)); p.joy = clamp(p.joy + 5); p.seen = Date.now(); S.daily.fed++;
     save(); sayG(fav ? "Minha favorita! Nham, obrigado!" : "Nham, gostoso!"); refreshBars();
     setTimeout(() => anim("feliz"), 1000);
@@ -1806,6 +2147,7 @@
   /* =========================================================
      PERFIL: nível, convite, almanaque, conquistas, privacidade
      ========================================================= */
+  let profTab = "alm"; // Almanaque | Guarda-roupa
   function renderProfile() {
     const v = $("v-profile"), lv = level(S.xp), into = S.xp - (lv - 1) * 150;
     const owned = PETS.filter(p => S.pets[p]).length, lightsAll = MISS.filter(m => m.lights);
@@ -1823,14 +2165,18 @@
         h("div", { class: "invite" }, h("small", { text: "Seu código de convite" }), h("div", { class: "c", text: S.code }),
           BOX ? h("small", { text: "Quem entrar pelo seu link ganha 1 Caixinha de Natal." }) : null,
           h("div", { class: "row", style: { marginTop: ".6rem" } }, h("button", { class: "btn", style: { background: "#fff", color: "var(--forest)" }, on: { click: invite } }, icon("share"), "Convidar"))),
+        h("div", { class: "row", style: { margin: ".9rem 0 .2rem" } },
+          h("button", { class: "btn" + (profTab === "alm" ? "" : " alt"), style: { minHeight: "2.4rem" }, "aria-pressed": String(profTab === "alm"), on: { click: () => { profTab = "alm"; renderProfile(); } } }, "Almanaque"),
+          h("button", { class: "btn" + (profTab === "roupa" ? "" : " alt"), style: { minHeight: "2.4rem" }, "aria-pressed": String(profTab === "roupa"), on: { click: () => { profTab = "roupa"; renderProfile(); } } }, "Guarda-roupa")),
+        profTab === "alm" ? almanacView() : [
         h("div", { class: "sec" }, "Guarda-roupa", h("small", { text: S.acc.length + " de " + Object.keys(C.accessories).length })),
-        h("div", { class: "card who", style: { padding: ".6rem .8rem" } }, h("img", { src: T.surucua, alt: "", style: { width: "4rem" } }),
-          h("div", { style: { flex: "1" } }, h("b", { text: SP.surucua.name }), h("small", null, h("i", { text: SP.surucua.sci }))),
-          h("button", { class: "pillbtn", style: { flex: "none", padding: "0 .8rem" }, on: { click: () => ficha("surucua") } }, "Ficha")),
-        h("div", { class: "accgrid" }, Object.entries(C.accessories).map(([k, a]) => { const has = S.acc.includes(k), from = MISS.find(m => m.acc === k || m.accNight === k);
-          return h("button", { class: "acccell" + (has ? "" : " off") + (Object.values(S.eq).includes(k) ? " on" : ""), on: { click: wardrobe } },
-            h("span", { class: "accico", text: { gorro: "🎅", laco: "🎀", cachecol: "🧣", pisca: "✨", oculos: "⭐", gorro_dourado: "👑" }[k] || "🎁" }),
-            h("b", { text: a.label }), h("small", { text: has ? C.slots[a.slot] : "Ganhe em " + (!from ? (BOX ? "Caixinha de Natal" : "breve") : from.anywhere ? (from.accNight === k ? "pinheiros à noite" : "pinheiros de dia") : from.partner) })); })),
+          h("div", { class: "card who", style: { padding: ".6rem .8rem" } }, h("img", { src: T.surucua, alt: "", style: { width: "4rem" } }),
+            h("div", { style: { flex: "1" } }, h("b", { text: SP.surucua.name }), h("small", null, h("i", { text: SP.surucua.sci }))),
+            h("button", { class: "pillbtn", style: { flex: "none", padding: "0 .8rem" }, on: { click: () => ficha("surucua") } }, "Ficha")),
+          h("div", { class: "accgrid" }, Object.entries(C.accessories).map(([k, a]) => { const has = S.acc.includes(k), from = MISS.find(m => m.acc === k || m.accNight === k);
+            return h("button", { class: "acccell" + (has ? "" : " off") + (Object.values(S.eq).includes(k) ? " on" : ""), on: { click: wardrobe } },
+              h("span", { class: "accico", text: { gorro: "🎅", laco: "🎀", cachecol: "🧣", pisca: "✨", oculos: "⭐", gorro_dourado: "👑" }[k] || "🎁" }),
+              h("b", { text: a.label }), h("small", { text: has ? C.slots[a.slot] : "Ganhe em " + (!from ? (BOX ? "Caixinha de Natal" : "breve") : from.anywhere ? (from.accNight === k ? "pinheiros à noite" : "pinheiros de dia") : from.partner) })); })),],
         h("div", { class: "sec" }, "Conquistas", h("small", { text: ach.filter(a => a[2]).length + " de " + ach.length })),
         h("div", { class: "grid3" }, ach.map(([l, src, on]) => h("div", { class: "ach" + (on ? "" : " off") }, h("img", { src, alt: "" }), l))),
         h("div", { class: "sec" }, "Ajustes"),
@@ -1840,15 +2186,69 @@
         h("button", { class: "btn alt", style: { marginTop: ".6rem" }, on: { click: () => show("partner") } }, "Tenho uma loja"),
         h("button", { class: "btn alt", style: { marginTop: ".6rem" }, on: { click: privacy } }, "Privacidade e dados")));
   }
+
+  /* =========================================================
+     ALMANAQUE: aves de Miguel Pereira. Não encontrada = silhueta; pista de comida = preto e branco;
+     encontrada = colorida, com a ficha da curadoria (texto próprio + fonte, ou "pendente de verificação").
+     ========================================================= */
+  let almQuery = "", almSort = "az";
+  const dexState = id => (S.pets[id] || S.dex.found[id]) ? "found" : S.dex.clue[id] ? "clue" : "none";
+  function birdArt(id, st, size) {
+    const art = id === "surucua" ? T.surucua : SP[id] && SP[id].img;
+    const style = { width: size, height: size, objectFit: "contain", filter: st === "found" ? "none" : st === "clue" ? "grayscale(1) contrast(1.1)" : "brightness(0) opacity(.85)" };
+    if (art) return h("img", { src: art, alt: "", style });
+    const e = icon("bird"); e.setAttribute("width", size); e.setAttribute("height", size); e.setAttribute("aria-hidden", "true");
+    e.style.color = st === "clue" ? "#6b6b6b" : "#111"; return e;
+  }
+  function almanacView() {
+    const ids = PETS.slice();
+    const name = id => dexState(id) === "found" ? SP[id].name : "???";
+    const q = almQuery.trim().toLowerCase();
+    let list = ids.filter(id => !q || (dexState(id) === "found" && SP[id].name.toLowerCase().includes(q)));
+    const rank = { found: 0, clue: 1, none: 2 };
+    list.sort((a, b) => almSort === "found" ? rank[dexState(a)] - rank[dexState(b)] || name(a).localeCompare(name(b), "pt-BR") : name(a).localeCompare(name(b), "pt-BR"));
+    const nFound = ids.filter(id => dexState(id) === "found").length;
+    const search = h("input", { type: "text", value: almQuery, placeholder: "Buscar ave", "aria-label": "Buscar ave no Almanaque", autocomplete: "off" });
+    search.addEventListener("input", () => { almQuery = search.value; const box = $("almgrid"); if (box) put(box, cells()); });
+    function cells() {
+      const qq = almQuery.trim().toLowerCase();
+      const ls = list.filter(id => !qq || (dexState(id) === "found" && SP[id].name.toLowerCase().includes(qq)));
+      if (!ls.length) return h("p", { class: "demo", text: "Nenhuma ave encontrada com esse nome." });
+      return ls.map(id => { const st = dexState(id);
+        return h("button", { class: "petcell" + (st === "clue" ? " clue" : ""), "aria-label": st === "found" ? SP[id].name : st === "clue" ? "Ave revelada pela comida, ainda sem nome" : "Ave ainda não encontrada", on: { click: () => ficha(id) } },
+          birdArt(id, st, "4.8rem"), h("span", { text: name(id) }), st === "clue" ? h("small", { class: "pista", text: "pista: " + C.foods[SP[id].fav].label.toLowerCase() }) : null); });
+    }
+    return [h("div", { class: "sec" }, "Aves de " + C.city, h("small", { text: nFound + " de " + ids.length })),
+      h("div", { class: "card", style: { padding: ".7rem" } }, h("div", { class: "petgrid", id: "almgrid" }, cells())),
+      h("div", { style: { display: "flex", gap: ".5rem", alignItems: "center" } }, h("div", { style: { flex: "1" } }, search),
+        h("button", { class: "chip", style: { marginBottom: ".5rem" }, on: { click: () => { almSort = almSort === "az" ? "found" : "az"; renderProfile(); } } }, almSort === "az" ? "Ordenar: A–Z" : "Ordenar: encontradas")),
+      ids.length === 1 ? h("p", { class: "demo", style: { textAlign: "left" }, text: "Novas aves entram aqui depois da curadoria." }) : null];
+  }
   function ficha(p) {
-    const sp = SP[p], has = !!S.pets[p], where = MISS.find(m => m.pet === p);
-    openSheet(h("div", { class: "reward" }, h("img", { class: "pet", src: T[p], alt: "", style: has ? null : { filter: "brightness(0) opacity(.2)" } }),
-      h("h2", { text: has ? sp.name : "Ainda não encontrado" }),
-      has ? h("p", null, h("i", { text: sp.sci })) : null,
-      h("p", { text: has ? sp.fact : "Encontre em " + (where ? where.partner : "uma missão") + "." }),
-      has ? h("p", null, h("b", { text: "Habilidade: " }), sp.skill) : null,
-      h("p", { class: "demo", text: sp.review ? "Lista de espécies em revisão por especialista. Modelo 3D: Anny." : "Revisado por especialista. Modelo 3D: Anny." }),
-      has && PETS.length > 1 ? h("button", { class: "btn", disabled: S.pets[p].away, on: { click: () => { S.sel = p; save(); closeSheet(); toast(sp.name + " vai com você!"); } } }, S.sel === p ? "Já está com você" : "Levar na expedição") : null));
+    const sp = SP[p], st = dexState(p), has = !!S.pets[p], a = sp.almanac || {};
+    const okUrl = u => typeof u === "string" && /^https:\/\//.test(u);
+    const ext = (href, label) => h("a", { href, target: "_blank", rel: "noopener noreferrer", style: { fontWeight: "700", fontSize: ".85rem" } }, label + " ↗");
+    const field = (label, f) => h("div", { class: "almfield" },
+      h("div", { style: { display: "flex", justifyContent: "space-between", gap: ".5rem", alignItems: "center" } }, h("b", { text: label }),
+        f && f.text ? null : h("span", { class: "tagdark", style: { background: "var(--gold)", color: "var(--ink)" }, text: "pendente de verificação" })),
+      f && f.text ? h("p", { text: f.text }) : null,
+      f && f.text && okUrl(f.src) ? ext(f.src, "Fonte") : null);
+    if (st !== "found") {
+      const where = st === "clue" ? byId(S.dex.clue[p]) : null;
+      return openSheet(h("div", { class: "reward" }, birdArt(p, st, "8rem"),
+        h("h2", { text: "???" }),
+        st === "clue" ? h("p", null, h("b", { text: "Pista: come " + C.foods[sp.fav].label.toLowerCase() }), where ? " · achada em " + where.partner : "") : h("p", { text: "Ainda não encontrada. Procure nos lugares do jogo." }),
+        st === "clue" ? h("p", { class: "demo", text: "A ficha completa libera quando você encontrar essa ave." }) : null,
+        st === "clue" ? h("button", { class: "btn", on: { click: () => openSearch() } }, icon("cam"), "Procurar ao redor") : null));
+    }
+    openSheet(h("div", { class: "reward" }, birdArt(p, st, "9rem"),
+        h("h2", { text: sp.name }), h("p", null, h("i", { text: sp.sci }))),
+      sp.fact ? h("p", { text: sp.fact }) : null,
+      sp.skill ? h("p", null, h("b", { text: "Habilidade: " }), sp.skill) : null,
+      h("div", { class: "card" }, field("O que come", a.diet), field("Onde vive", a.habitat), field("Ninho", a.nest),
+        h("p", { style: { margin: ".6rem 0 0", fontSize: ".85rem" } }, "Registrada em " + C.city + " · ", okUrl(a.obs) ? ext(a.obs, "ver observação no iNaturalist") : h("span", { class: "tagdark", style: { background: "var(--gold)", color: "var(--ink)" }, text: "pendente de verificação" }))),
+      h("p", { class: "demo", text: (sp.review ? "Lista de espécies em revisão por especialista." : "Revisado por especialista.") + " Arte e modelo 3D do jogo; nenhuma foto, som ou texto do iNaturalist." }),
+      has && PETS.length > 1 ? h("button", { class: "btn", disabled: S.pets[p].away, on: { click: () => { S.sel = p; save(); closeSheet(); toast(sp.name + " vai com você!"); } } }, S.sel === p ? "Já está com você" : "Levar na expedição") : null);
   }
   /* Guarda-roupa: veste um acessório por parte do corpo. */
   function wardrobe() {

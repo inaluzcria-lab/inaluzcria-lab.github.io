@@ -97,17 +97,28 @@ service cloud.firestore {
     match /posts_private/{pid} {
       allow read, delete: if signedIn() && resource.data.uid == request.auth.uid;
       allow create: if canPublish()
-        && request.resource.data.keys().hasOnly(['uid', 'photo', 'route', 'createdAt'])
+        && request.resource.data.keys().hasOnly(['uid', 'photo', 'photos', 'route', 'createdAt'])
         && request.resource.data.uid == request.auth.uid
         && request.resource.data.createdAt == request.time
         && (opt(request.resource.data, 'photo') || photoOk(request.resource.data.photo, 160000))
         && (opt(request.resource.data, 'route') || (request.resource.data.route is list && request.resource.data.route.size() <= 240))
+        && (opt(request.resource.data, 'photos') || photosOk(request.resource.data.photos))
+        // check-in nunca guarda trilha
+        && (opt(request.resource.data, 'route') || getAfter(/databases/$(database)/documents/posts/$(pid)).data.kind != 'checkin')
         && existsAfter(/databases/$(database)/documents/posts/$(pid));
     }
+    // Até 3 fotos extras (além de photo), cada uma JPEG pequena.
+    function photosOk(l) {
+      return l is list && l.size() >= 1 && l.size() <= 3
+        && photoOk(l[0], 100000)
+        && (l.size() < 2 || photoOk(l[1], 100000))
+        && (l.size() < 3 || photoOk(l[2], 100000));
+    }
     function validPost(d) {
-      return d.keys().hasOnly(['v', 'kind', 'nick', 'missionId', 'missions', 'title', 'pet', 'pets', 'xp', 'km', 'mins', 'places', 'club', 'clubName', 'claps', 'createdAt'])
+      return d.keys().hasOnly(['v', 'kind', 'nick', 'missionId', 'missions', 'title', 'pet', 'pets', 'xp', 'km', 'mins', 'places', 'club', 'clubName', 'claps', 'createdAt', 'real'])
         && d.v == 2
-        && d.kind in ['mission', 'expedition', 'place']
+        && d.kind in ['mission', 'expedition', 'place', 'checkin', 'encounter', 'sighting']
+        && (opt(d, 'real') || (d.real is bool && d.kind == 'sighting'))
         && text(d.nick, 20) && slug(d.pet)
         && d.xp is int && d.xp >= 0 && d.xp <= 2000
         && d.claps == 0 && d.createdAt == request.time
@@ -232,6 +243,15 @@ service cloud.firestore {
         && request.resource.data.createdAt == request.time;
     }
 
+    // Descoberta compartilhada: lugar + espécie + hora. Sem uid nem posição de quem achou.
+    match /spawns/{id} {
+      allow read: if signedIn();
+      allow create, update: if signedIn()
+        && request.resource.data.keys().hasOnly(['place', 'species', 'at'])
+        && slug(request.resource.data.place) && slug(request.resource.data.species)
+        && id == request.resource.data.place + '_' + request.resource.data.species
+        && request.resource.data.at == request.time;
+    }
     match /{document=**} {
       allow read, write: if false;
     }

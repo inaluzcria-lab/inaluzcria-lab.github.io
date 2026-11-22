@@ -37,16 +37,18 @@ O que já está ajustado para o Pages:
 | Detalhe da expedição | Estilo Strava: rota desenhada, distância, tempo, lugares, XP e pets |
 | Clubes | Desafio da semana com ranking, Guardiões do mês, criar e entrar em clubes por código (sem chat) |
 | Mapa | Pinos grandes, lista, "Como chegar", Rota do pisca-pisca (XP em dobro depois das 18h), expedição com GPS, lugares marcados |
-| Expedição | Escolhe o companheiro, mede km e tempo pelo GPS, junta lugares e pets, publica com a rota sem os primeiros e últimos 150 m |
+| Expedição | "Começar expedição" mede km e tempo pelo GPS desde o toque; dá para usar o app e a câmera no caminho; encerra no Mapa; resumo com fotos da galeria (opcional) e publicação opcional; trajeto sem os primeiros 200 m e os últimos 150 m; abaixo de 200 m vira check-in |
 | Marcar lugar | GPS a até 50 m, foto na hora, tipo e nome, aviso de duplicado; "em descoberta" até 3 visitas; bicho do ambiente; some em 30 dias |
 | Este lugar é meu? | Dono escolhe plano e manda contato; a equipe confere antes de valer |
-| Câmera em RA | Surucuá em 3D sobre a câmera, com os acessórios; dica dele em balão e voz; Galeria como reserva; modo Procurar |
+| Câmera em RA | Surucuá em 3D sobre a câmera, com os acessórios; dica dele em balão e voz; Galeria como reserva; modo Procurar; "Olhar ao redor aqui" (busca no território); "Fotografar uma ave de verdade" |
+| Encontro | Surucuá cabisbaixo → ergue cabeça e asas → "Me leve com você" no chat (recolhido, com aviso); aceitar (canta), recusar (despedida, mudar de ideia, avisar no feed); foto e "Levar para o Jardim" separados; reencontro "Oi, você voltou!" |
+| Almanaque | No Perfil, aba ao lado do Guarda-roupa: silhueta (não encontrada), preto e branco (pista pela comida), colorida (encontrada); busca e ordenação; ficha com fontes ou "pendente de verificação" |
 | Recompensa e Story | XP, pet novo, presente certo da loja, Caixinha, Story 1080×1920 com QR, pedido de impressão |
-| Jardim | Surucuá como tamagotchi (fome, carinho, sono, alegria), mochila, carinho, "Falar" com voz mais aguda, pet passeia se esquecido |
+| Jardim | Surucuá como tamagotchi (fome, carinho, sono, alegria), mochila, carinho, "Falar" com voz mais aguda, pet passeia se esquecido; ave levada pelo encontro fica de visita e volta ao habitat (alimentar com fome estende a visita) |
 | Vínculo | Mensagens do pet no estilo WhatsApp, rotina pela hora do dia, respostas rápidas, vínculo 5 libera o canto |
 | Guarda-roupa | Veste um acessório de Natal por parte do corpo (cabeça, pescoço, asas, rosto) |
 | Caixinha e Passe | Chances visíveis, só se ganha jogando; trilha grátis com missões do dia; Padrinho da Serra com preço em aberto |
-| Perfil | Nível, sequência, convite, almanaque com ficha, conquistas, letra grande, privacidade, apagar dados |
+| Perfil | Nível, sequência, convite, Almanaque e Guarda-roupa, conquistas, letra grande, privacidade, apagar dados |
 | Loja | Contato com consentimento, criar missão por modelo (fica pendente até você aprovar), QR do balcão, painel de exemplo, oferta de VR |
 | Instalar | PWA na tela inicial |
 
@@ -94,6 +96,22 @@ O `assets/tag.mind` reconhece três alvos: 0 = a mandala impressa (deitada no ba
 **Notificações:** os avisos do pet aparecem dentro do app (bolinha vermelha no Jardim e mensagens). Notificação com o app fechado precisa do Firebase Cloud Messaging e de um servidor; fica para a próxima etapa.
 
 **Aprovar missões de loja:** no console do Firestore, abra `storeMissions`, confira a loja e mude `status` para `ok`. Se quiser, adicione `mapX` e `mapY` (0 a 1) para o pino no mapa e `lat`/`lng` para exigir presença.
+
+## Busca no território, encontro, Almanaque e expedição (high concept atualizado)
+
+**Busca no território.** Câmera › "Olhar ao redor aqui". Funciona sem expedição e sem tag: a localização do aparelho precisa estar a até `encounter.radiusMeters` (120 m) de um lugar com `lat`/`lng` em `config.js`. Nas lojas, o adesivo só avisa que vale abrir o jogo; a espécie é surpresa. A posição não é salva nem enviada.
+
+**Encontro.** A ave aparece cabisbaixa (pose `triste`); ao perceber a pessoa, ergue cabeça e asas (pose `pedido`) e acende a bolinha no ícone de chat. O chat entra recolhido; o balão fica no alto, fora da área de toque da ave. "Ouvir o texto" só fala quando tocado. Aceitar: a ave canta (clipe `feliz` + `canto`). Foto (obturador) e "Levar para o Jardim" são ações separadas. Recusar: despedida, "Mudei de ideia" e "Avisar no feed que tem uma ave aqui". As poses `triste` e `pedido` são feitas em `pets.js` mexendo nos ossos `head`, `wingL` e `wingR` sobre o `idle` (não são clipes do `.glb`).
+
+**Reencontro (hipótese em teste).** Com `encounter.recognizeAfterGardenVisit: true`, a ave que já visitou o Jardim mostra "♥ Lembrou de você" e "Oi, você voltou!".
+
+**Jardim.** "Levar para o Jardim" deixa a ave de visita por `encounter.visitHours` (2 h). Com fome, alimentar soma `encounter.feedExtraHours` (1 h). Ao fim da visita ela volta ao habitat e o Jardim mostra onde revê-la. O surucuá que o jogador já tinha antes dessa versão continua no Jardim como antes.
+
+**Comida e Almanaque.** Na revisita, a comida da ave do lugar aparece na câmera (uma por dia). Quando alguém encontra a própria ave num lugar, o app grava `spawns/{lugar}_{espécie}` (só lugar, espécie e hora) e a comida dessa espécie passa a aparecer ali para os outros por 7 dias. Pegar a comida de outra espécie faz o ícone do Almanaque piscar e revela só aquela espécie em preto e branco. O Almanaque usa a ficha de `species.*.almanac` em `config.js`: `{ text, src }` por campo, ou `null` para "pendente de verificação". Outras aves entram depois da curadoria, com arte própria (`img`).
+
+**Expedição.** O aviso "Atenção, hora de olhar ao redor" (e variações em `nearby.lines`) aparece dentro do app quando a localização já está permitida e há um lugar a até `nearby.meters`. Tocar abre o Mapa em Lista, em ordem de distância, sem dizer a espécie. "Fazer esta expedição" num post abre os destinos daquele percurso. A expedição só começa em "Começar expedição"; ao encerrar aparece o resumo, e fotos e publicação são opcionais.
+
+**Feed.** Tipos novos: `checkin` (sem trilha), `encounter` (ave virtual) e `sighting` com `real: true` ("Vi na vida real", com link para o iNaturalist). Até 3 fotos extras ficam na parte privada (`posts_private.photos`).
 
 ## Ligar o Firebase (gratuito, plano Spark)
 
@@ -155,7 +173,7 @@ Ativada em `config.js` (`box: { enabled: true }`). Novos jogadores começam com 
 
 ### Testes das regras (Firebase Emulator)
 
-`tests/rules.test.mjs` cobre: visitante, conta anônima e Google sem idade não publicam; Google + `ageVerified` publica; contador não sobe sem post; post público com foto/uid é recusado; feed fechado e aberto; posts antigos só para o dono; aplausos; apagar post, aplausos e perfil; marcar lugar sem permissão. Para rodar (Node 18+ e Java 11+):
+`tests/rules.test.mjs` cobre: check-in sem trilha, "Vi na vida real", ave virtual, fotos extras e a coleção `spawns`; e também: visitante, conta anônima e Google sem idade não publicam; Google + `ageVerified` publica; contador não sobe sem post; post público com foto/uid é recusado; feed fechado e aberto; posts antigos só para o dono; aplausos; apagar post, aplausos e perfil; marcar lugar sem permissão. Para rodar (Node 18+ e Java 11+):
 
 ```
 npm i -D firebase-tools @firebase/rules-unit-testing firebase

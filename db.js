@@ -22,7 +22,9 @@
   const SLUG = /^[a-z0-9-]{2,24}$/, CLUB = /^[A-Z2-9]{6}$/, DOCID = /^[A-Za-z0-9]{6,40}$/;
   const PHOTO = /^data:image\/jpeg;base64,[A-Za-z0-9+/=]+$/;
   const MIN_GAP_MS = 30000;
-  const KINDS = ["mission", "expedition", "place"];
+  /* checkin: expedição com menos de 200 m (sem trilha); encounter: ave virtual num lugar (foto ou aviso);
+     sighting: foto de ave de verdade, com a marca real ("Vi na vida real"). */
+  const KINDS = ["mission", "expedition", "place", "checkin", "encounter", "sighting"];
 
   function load(src) {
     return new Promise((ok, no) => {
@@ -80,7 +82,9 @@
     if (p.mins) o.mins = Math.round(num(p.mins, 0, 1440));
     if (p.places) o.places = Math.round(num(p.places, 0, 50));
     if (typeof p.photo === "string" && p.photo.length <= 160000 && PHOTO.test(p.photo)) o.photo = p.photo;
-    if (Array.isArray(p.route) && p.route.length >= 4) o.route = p.route.slice(0, 240).map(x => Math.round(num(x, -180, 180) * 1e4) / 1e4);
+    if (Array.isArray(p.photos)) { const ph = p.photos.filter(x => typeof x === "string" && x.length <= 100000 && PHOTO.test(x)).slice(0, 3); if (ph.length) o.photos = ph; }
+    if (kind === "sighting") o.real = p.real === true;
+    if (kind !== "checkin" && Array.isArray(p.route) && p.route.length >= 4) o.route = p.route.slice(0, 240).map(x => Math.round(num(x, -180, 180) * 1e4) / 1e4);
     if (p.club && CLUB.test(p.club)) { o.club = p.club; o.clubName = str(p.clubName, 24) || "Clube"; }
     return o;
   }
@@ -136,8 +140,8 @@
     LS.set("lastPost", Date.now());
     const ts = fv().serverTimestamp();
     const userRef = DB.fs.doc("users/" + DB.uid), postRef = DB.fs.collection("posts").doc(), privRef = DB.fs.doc("posts_private/" + postRef.id);
-    const pub = Object.assign({}, o); delete pub.photo; delete pub.route;
-    const priv = { uid: DB.uid, createdAt: ts }; if (o.photo) priv.photo = o.photo; if (o.route) priv.route = o.route;
+    const pub = Object.assign({}, o); delete pub.photo; delete pub.photos; delete pub.route;
+    const priv = { uid: DB.uid, createdAt: ts }; if (o.photo) priv.photo = o.photo; if (o.photos) priv.photos = o.photos; if (o.route) priv.route = o.route;
     const commit = async withStats => {
       const b = DB.fs.batch();
       b.set(userRef, { nick: o.nick, lastPostAt: ts, lastPostId: postRef.id }, { merge: true });
@@ -157,6 +161,7 @@
       missions: Array.isArray(x.missions) ? x.missions.filter(v => SLUG.test(v)) : [], title: str(x.title, 60), pet: x.pet, pets: Array.isArray(x.pets) ? x.pets.filter(v => SLUG.test(v)) : [],
       xp: x.xp | 0, km: num(x.km, 0, 100), mins: x.mins | 0, places: x.places | 0, claps: x.claps | 0,
       photo: typeof photo === "string" && PHOTO.test(photo) ? photo : null, route: Array.isArray(route) ? route.filter(v => typeof v === "number") : null,
+      photos: Array.isArray(priv.photos) ? priv.photos.filter(v => typeof v === "string" && PHOTO.test(v)).slice(0, 3) : [], real: x.real === true,
       club: CLUB.test(x.club || "") ? x.club : null, clubName: str(x.clubName, 24), createdAt: toMs(x.createdAt) };
   }
   /* Meus posts (novos e antigos), com foto e trajeto que só eu posso ler. */
@@ -293,6 +298,22 @@
   };
 
   /* Pedido de impressão: só um código. A foto é mostrada no balcão, nunca enviada. */
+  /* Descoberta compartilhada: quando alguém encontra a própria ave num lugar, a comida daquela espécie
+     passa a aparecer ali para as outras pessoas. Guarda só lugar, espécie e hora (nada de quem achou). */
+  const SPAWN_DAYS = 7;
+  DB.markFound = async function (place, species) {
+    if (!SLUG.test(place) || !SLUG.test(species)) return;
+    if (DB.mode !== "firebase") { const all = LS.get("spawns", {}); all[place + "_" + species] = { place, species, at: Date.now() }; LS.set("spawns", all); return; }
+    await DB.fs.doc("spawns/" + place + "_" + species).set({ place, species, at: fv().serverTimestamp() });
+  };
+  DB.listSpawns = async function (place) {
+    if (!SLUG.test(place)) return [];
+    const since = Date.now() - SPAWN_DAYS * 864e5;
+    if (DB.mode !== "firebase") return Object.values(LS.get("spawns", {})).filter(x => x.place === place && x.at >= since && SLUG.test(x.species)).map(x => x.species);
+    const s = await DB.fs.collection("spawns").where("place", "==", place).limit(20).get();
+    return s.docs.map(d => d.data()).filter(x => SLUG.test(x.species || "") && toMs(x.at) >= since).map(x => x.species);
+  };
+
   DB.addOrder = async function (missionId) {
     const code = randId(6), o = { code, missionId, createdAt: Date.now() };
     if (DB.mode === "firebase" && SLUG.test(missionId)) {
