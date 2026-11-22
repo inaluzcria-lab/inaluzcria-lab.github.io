@@ -50,6 +50,7 @@
     nav: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 11l18-8-8 18-2-8z"/></svg>',
     speaker: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 10v4h4l5 4V6L8 10zM16 9a4 4 0 010 6"/></svg>',
     mic: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0014 0M12 18v3"/></svg>',
+    chat: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a3 3 0 01-3 3H8l-5 3V6a3 3 0 013-3h12a3 3 0 013 3z"/><path d="M8 10h8M8 14h5"/></svg>',
     heart: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 21s-8-5.2-8-11a4.5 4.5 0 018-2.8A4.5 4.5 0 0120 10c0 5.8-8 11-8 11z"/></svg>',
     cookie: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><circle cx="9" cy="9" r="1" fill="currentColor"/><circle cx="14" cy="13" r="1" fill="currentColor"/><circle cx="10" cy="15" r="1" fill="currentColor"/></svg>',
     share: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 15V3M7 8l5-5 5 5M5 13v7h14v-7"/></svg>',
@@ -135,8 +136,8 @@
   function addXp(n) { const before = level(S.xp); S.xp += n; if (level(S.xp) > before) setTimeout(() => toast("Subiu para o nível " + level(S.xp) + "!"), 900); }
 
   /* ---------- voz do guia ---------- */
-  function speak(text, pitch) {
-    if (!S.voice || !("speechSynthesis" in window)) return;
+  function speak(text, pitch, force) {
+    if (!("speechSynthesis" in window) || (!force && !S.voice)) return;
     try {
       speechSynthesis.cancel();
       const u = new SpeechSynthesisUtterance(text); u.lang = "pt-BR"; u.rate = 1.05; u.pitch = pitch || 1.3;
@@ -184,12 +185,39 @@
      e a tela continua onde estava (inclusive na tela inicial). */
   let guardOpen = false, pendingBack = false, navQueue = [];
   const overlayOn = () => $("sheet").classList.contains("on") || $("v-cam").classList.contains("on");
+  let sheetLocked = false, sheetMainScroll = 0, sheetWindowScroll = 0;
+  function lockSheetScroll() {
+    if (sheetLocked) return;
+    sheetLocked = true;
+    sheetMainScroll = $("main").scrollTop;
+    sheetWindowScroll = window.scrollY;
+    document.documentElement.classList.add("sheet-scroll-lock");
+    document.body.classList.add("sheet-scroll-lock");
+    $("main").style.overflow = "hidden";
+  }
+  function unlockSheetScroll() {
+    if (!sheetLocked) return;
+    sheetLocked = false;
+    document.documentElement.classList.remove("sheet-scroll-lock");
+    document.body.classList.remove("sheet-scroll-lock");
+    $("main").style.overflow = "";
+    $("main").scrollTop = sheetMainScroll;
+    if (window.scrollY !== sheetWindowScroll) window.scrollTo(0, sheetWindowScroll);
+  }
   function pushNav(st) { if (pendingBack) navQueue.push(st); else history.pushState(st, ""); }
   function overlayOpened() { if (!guardOpen) { guardOpen = true; pushNav({ v: cur, guard: true }); } }
   function overlayClosed() { if (guardOpen && !overlayOn()) { guardOpen = false; if (history.state && history.state.guard) { pendingBack = true; history.back(); } } }
-  function openSheet(...kids) { put($("sheetbody"), h("div", { class: "grab" }), ...kids); $("sheet").classList.add("on"); overlayOpened(); }
-  function closeSheet() { $("sheet").classList.remove("on"); overlayClosed(); }
+  function openSheet(...kids) { put($("sheetbody"), h("div", { class: "grab" }), ...kids); $("sheet").classList.add("on"); lockSheetScroll(); overlayOpened(); }
+  function closeSheet() { $("sheet").classList.remove("on"); unlockSheetScroll(); overlayClosed(); }
   $("sheet").addEventListener("click", e => { if (e.target.id === "sheet") closeSheet(); });
+  document.addEventListener("touchmove", e => {
+    if (!sheetLocked) return;
+    if (!$("sheetbody").contains(e.target)) e.preventDefault();
+  }, { passive: false });
+  document.addEventListener("wheel", e => {
+    if (!sheetLocked) return;
+    if (!$("sheetbody").contains(e.target)) e.preventDefault();
+  }, { passive: false });
   document.addEventListener("keydown", e => { if (e.key === "Escape") { closeSheet(); if ($("v-cam").classList.contains("on")) closeCam(); } });
 
   /* =========================================================
@@ -814,6 +842,43 @@
      CÂMERA EM RA (Three.js sobre o vídeo)
      ========================================================= */
   let camM = null, stream = null, bgImg = null, ar = null;
+  let missionChatOpen = false, missionChatNotified = true, missionChatMission = null;
+  function stopMissionSpeech() {
+    try { if ("speechSynthesis" in window) speechSynthesis.cancel(); } catch (_) {}
+  }
+  function renderMissionChat(m) {
+    missionChatMission = m;
+    missionChatOpen = false;
+    missionChatNotified = true;
+    stopMissionSpeech();
+    const draw = open => {
+      missionChatOpen = false;
+      stopMissionSpeech();
+      if (!open) {
+        const closed = h("button", { class: "mission-chat-toggle", type: "button", "aria-label": "Mostrar instruções da missão", "aria-expanded": "false" },
+          icon("chat"), missionChatNotified ? h("span", { class: "chat-notice", "aria-hidden": "true" }) : null);
+        closed.addEventListener("click", () => { missionChatNotified = false; missionChatOpen = true; draw(true); });
+        put($("chat"), closed);
+        return;
+      }
+      missionChatOpen = true;
+      missionChatNotified = false;
+      const toggle = h("button", { class: "mission-chat-toggle", type: "button", "aria-label": "Ocultar instruções da missão", "aria-expanded": "true" }, icon("chat"));
+      toggle.addEventListener("click", () => draw(false));
+      const listen = h("button", { class: "speak", type: "button", on: { click: () => {
+        stopMissionSpeech();
+        speak(m.tip, 1.3, true);
+      } } }, icon("speaker"), "Ouvir o texto");
+      put($("chat"),
+        toggle,
+        h("div", { class: "bubble" },
+          h("b", { style: { display: "flex", alignItems: "center", gap: ".35rem" } }, h("img", { src: T.surucua, alt: "", class: "bubav" }), C.guideName + ", seu guia"),
+          m.tip,
+          h("div", { class: "meta", text: new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }) }),
+          listen));
+    };
+    draw(false);
+  }
   function pickMission() {
     const today = dayKey(), next = MISS.find(m => S.done[m.id] !== today);
     openSheet(h("h2", { text: "Qual missão?" }), MISS.map(m => h("button", { class: "opt", on: { click: () => { closeSheet(); openCam(m); } } },
@@ -822,20 +887,17 @@
       m === next ? h("span", { class: "coupon", style: { margin: "0" }, text: "Próxima" }) : null)));
   }
   async function openCam(m, free) {
+    stopMissionSpeech();
     camM = m; bgImg = null; closeSheet();
     if (m.tag && !free && window.THREE) return startTag(m);
     const xp = m.xp * (m.lights && isNight() ? 2 : 1);
     $("camlabel").textContent = m.name + " · +" + xp + " XP" + (m.lights && isNight() ? " 🌙" : "");
     $("camxp").textContent = S.done[m.id] === dayKey() ? "Já valeu hoje" : "";
     $("camhint").textContent = "Um " + petName(m.pet) + " apareceu! Arraste para posicionar e tire a foto.";
-    const speakBtn = h("button", { class: "speak", on: { click: () => speak(m.tip) } }, icon("speaker"), "Ouvir o " + C.guideName);
-    put($("chat"), h("div", { class: "bubble" },
-      h("b", { style: { display: "flex", alignItems: "center", gap: ".35rem" } }, h("img", { src: T.surucua, alt: "", class: "bubav" }), C.guideName + ", seu guia"),
-      m.tip, h("div", { class: "meta", text: new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }) })), speakBtn);
+    renderMissionChat(m);
     $("v-cam").classList.add("on"); overlayOpened();
     drawFallback();
     startAR(m.pet);
-    speak(m.tip);
     try {
       if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) throw new Error("sem câmera");
       await camStream();
@@ -913,15 +975,16 @@
   async function startTag(m) {
     stopAR(); stopStream();
     const vc = $("v-cam"); vc.classList.add("on", "tagmode"); overlayOpened();
+    stopMissionSpeech();
     $("camlabel").textContent = m.name + " · +" + m.xp + " XP";
     $("camxp").textContent = S.done[m.id] === dayKey() ? "Já valeu hoje" : "";
-    /* A cena abre sem balão de texto: só o botão para seguir sem a tag. */
-    put($("chat"), h("button", { class: "speak", on: { click: () => { stopTag(); openCam(m, true); } } }, "Estou sem a tag"));
-    $("camhint").textContent = "Carregando a câmera da tag…";
+    renderMissionChat(m);
+    put($("camhint"),
+      "Carregando a câmera da tag…",
+      h("button", { class: "glass", style: { display: "block", margin: ".45rem auto 0" }, on: { click: () => { stopTag(); openCam(m, true); } } }, "Estou sem a tag"));
     $("fallback").style.display = "none"; $("arcv").style.display = "none";
     const box = h("div", { class: "tagbox" }); vc.prepend(box);
     tag = { box, mt: null, pet: null, found: false, landed: false, m, mul: 1, yaw: 0, lostT: 0 };
-    speak("Procura a minha tag no balcão ou o letreiro É junto dos Bão! Aponta a câmera que eu pouso lá.");
     try {
       await loadMind();
       if (!tag || tag.box !== box) return;
@@ -982,13 +1045,14 @@
   let seek = null;
   async function openSeek(m) {
     if (!window.LocAR || !window.THREE) return toast("Modo Procurar indisponível neste aparelho");
+    stopMissionSpeech();
     closeSheet(); closeCam(); camM = m;
     const vc = $("v-cam"); vc.classList.add("on", "seek"); overlayOpened();
     $("camlabel").textContent = "Procurar · " + m.partner;
     $("camxp").textContent = "";
     const info = h("div", { class: "seekinfo", text: "Procurando o sinal do GPS…" });
-    put($("chat"), h("div", { class: "bubble" }, h("b", { style: { display: "flex", alignItems: "center", gap: ".35rem" } }, h("img", { src: T.surucua, alt: "", class: "bubav" }), C.guideName + ", seu guia"),
-      "Me segue! Vou voando na direção de " + m.partner + ". Olhe em volta com o celular até me achar."), info);
+    renderMissionChat(m);
+    $("chat").append(info);
     $("camhint").textContent = "Segure o celular em pé e gire devagar.";
     $("fallback").style.display = "none";
     startVideoOnly();
@@ -1051,7 +1115,7 @@
     } catch (_) { $("fallback").style.display = "block"; drawFallback(); }
   }
   function stopStream() { if (stream) stream.getTracks().forEach(t => t.stop()); stream = null; $("vid").srcObject = null; }
-  function closeCam() { stopTag(); stopSeek(); stopStream(); stopAR(); $("v-cam").classList.remove("on"); try { speechSynthesis.cancel(); } catch (_) {} overlayClosed(); }
+  function closeCam() { stopMissionSpeech(); stopTag(); stopSeek(); stopStream(); stopAR(); $("v-cam").classList.remove("on"); missionChatOpen = false; missionChatMission = null; put($("chat")); overlayClosed(); }
   function drawFallback() {
     const cv = $("fallback"), c = cv.getContext("2d"), W = cv.width, H = cv.height;
     if (bgImg) { cover(c, bgImg, W, H); return; }
@@ -1992,7 +2056,7 @@
       return;
     }
     /* voltar nativo com folha ou câmera abertas: fecha e a tela continua onde estava */
-    if (guardOpen) { guardOpen = false; $("sheet").classList.remove("on"); if ($("v-cam").classList.contains("on")) closeCam(); return; }
+    if (guardOpen) { guardOpen = false; $("sheet").classList.remove("on"); unlockSheetScroll(); if ($("v-cam").classList.contains("on")) closeCam(); return; }
     if (onbCtl) { if (typeof st.onb === "number") onbCtl.go(st.onb); else if (onbCtl.finishing) onbCtl.done(); return; }
     if (st.v && st.v !== cur) show(st.v, true);
   });
