@@ -46,7 +46,15 @@ window.CONFIG = {
                /* Ficha do Almanaque. Preencha só com a curadoria (texto próprio + link da fonte).
                   { text, src } = informação verificada; null = o app mostra "pendente de verificação".
                   obs = link de uma observação em Miguel Pereira no iNaturalist (só o link; nada é importado). */
-               almanac: { diet: null, habitat: null, nest: null, obs: null } }
+               almanac: {
+                 /* Curadoria (texto próprio). Fonte conferida: Wikipedia, que resume Birds of the World
+                    (Collar, del Hoyo e Kirwan 2020, doi:10.2173/bow.surtro1.01). Vale conferir direto no BOW. */
+                 diet: { text: "Come muitos tipos de insetos, adultos e larvas, além de frutos e, às vezes, flores.", src: "https://en.wikipedia.org/wiki/Surucua_trogon" },
+                 habitat: { text: "Vive na altura média de matas primárias e de matas secundárias bem desenvolvidas, e também em matas semidecíduas.", src: "https://en.wikipedia.org/wiki/Surucua_trogon" },
+                 nest: { text: "Faz o ninho num oco de árvore apodrecida ou num cupinzeiro no alto das árvores. Nenhuma fonte consultada aponta uma espécie de árvore.", src: "https://en.wikipedia.org/wiki/Surucua_trogon" },
+                 conserve: { text: "Depende de mata bem conservada: a fragmentação da floresta pode afetá-lo. Manter árvores velhas e trechos de mata ajuda a ave a voltar.", src: "https://en.wikipedia.org/wiki/Surucua_trogon" },
+                 /* Observação em Miguel Pereira no iNaturalist (place_id=23710): pendente de verificação. Cole aqui o link da observação conferida. */
+                 obs: null } }
   },
   /* Outras aves do Almanaque entram aqui depois da curadoria, no mesmo formato acima, com:
      fav (comida da espécie, em foods) e img (arte própria do jogo; sem img o app mostra uma silhueta genérica).
@@ -57,6 +65,8 @@ window.CONFIG = {
     radiusMeters: 120,          // distância máxima do lugar cadastrado (lat/lng da missão)
     visitHours: 2,              // quanto tempo a ave fica de visita no Jardim
     feedExtraHours: 1,          // alimentar com fome faz ela ficar mais esse tempo
+    spawnMeters: 6,             // AR.js (LocAR): a ave aparece a esta distância, na direção do lugar cadastrado
+    spawnScale: 2.4,            // tamanho da ave nessa distância
     /* Hipótese em teste: a ave reconhece a pessoa ("Oi, você voltou!") depois de já ter visitado o Jardim. */
     recognizeAfterGardenVisit: true,
     lines: { ask: "Me leve com você", bye: "Tudo bem… fico por aqui. Tchau!", back: "Oi, você voltou!" }

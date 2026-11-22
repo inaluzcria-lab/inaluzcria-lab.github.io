@@ -22,9 +22,9 @@
   const SLUG = /^[a-z0-9-]{2,24}$/, CLUB = /^[A-Z2-9]{6}$/, DOCID = /^[A-Za-z0-9]{6,40}$/;
   const PHOTO = /^data:image\/jpeg;base64,[A-Za-z0-9+/=]+$/;
   const MIN_GAP_MS = 30000;
-  /* checkin: expedição com menos de 200 m (sem trilha); encounter: ave virtual num lugar (foto ou aviso);
-     sighting: foto de ave de verdade, com a marca real ("Vi na vida real"). */
-  const KINDS = ["mission", "expedition", "place", "checkin", "encounter", "sighting"];
+  /* checkin: expedição com menos de 200 m (sem trilha); encounter: aviso de ave virtual num lugar;
+     arphoto: foto com a ave virtual em RA; sighting: foto de ave de verdade, com a marca real ("Vi na vida real"). */
+  const KINDS = ["mission", "expedition", "place", "checkin", "encounter", "arphoto", "sighting"];
 
   function load(src) {
     return new Promise((ok, no) => {

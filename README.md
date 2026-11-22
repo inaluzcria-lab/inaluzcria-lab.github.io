@@ -99,7 +99,11 @@ O `assets/tag.mind` reconhece três alvos: 0 = a mandala impressa (deitada no ba
 
 ## Busca no território, encontro, Almanaque e expedição (high concept atualizado)
 
-**Busca no território.** Câmera › "Olhar ao redor aqui". Funciona sem expedição e sem tag: a localização do aparelho precisa estar a até `encounter.radiusMeters` (120 m) de um lugar com `lat`/`lng` em `config.js`. Nas lojas, o adesivo só avisa que vale abrir o jogo; a espécie é surpresa. A posição não é salva nem enviada.
+**Busca no território.** Câmera › "Olhar ao redor aqui". Funciona sem expedição e sem marcador, QR code ou alvo: a localização do aparelho precisa estar a até `encounter.radiusMeters` (120 m) de um lugar com `lat`/`lng` em `config.js`. Nas lojas, o adesivo só avisa que vale abrir o jogo; a espécie é surpresa. A posição não é salva nem enviada.
+
+**AR.js (LocAR): a localização dita o spawn.** A ave aparece a `encounter.spawnMeters` (6 m) do jogador, na direção do lugar cadastrado (bem em cima do lugar, numa direção fixa por lugar). Ela é "encontrada" quando fica meio segundo no centro da câmera; depois de 8 s, setas ajudam a girar. A permissão da bússola é pedida no próprio toque em "Olhar ao redor aqui". Sem bússola (computador ou permissão negada), a ave aparece na frente da câmera depois de alguns segundos.
+
+**Tag só da segunda visita em diante.** Nas missões de loja (`tag: true`), a primeira visita abre a câmera só pela localização; a tag do balcão (MindAR) entra a partir da segunda visita, com "Estou sem a tag" como saída.
 
 **Encontro.** A ave aparece cabisbaixa (pose `triste`); ao perceber a pessoa, ergue cabeça e asas (pose `pedido`) e acende a bolinha no ícone de chat. O chat entra recolhido; o balão fica no alto, fora da área de toque da ave. "Ouvir o texto" só fala quando tocado. Aceitar: a ave canta (clipe `feliz` + `canto`). Foto (obturador) e "Levar para o Jardim" são ações separadas. Recusar: despedida, "Mudei de ideia" e "Avisar no feed que tem uma ave aqui". As poses `triste` e `pedido` são feitas em `pets.js` mexendo nos ossos `head`, `wingL` e `wingR` sobre o `idle` (não são clipes do `.glb`).
 
@@ -111,7 +115,9 @@ O `assets/tag.mind` reconhece três alvos: 0 = a mandala impressa (deitada no ba
 
 **Expedição.** O aviso "Atenção, hora de olhar ao redor" (e variações em `nearby.lines`) aparece dentro do app quando a localização já está permitida e há um lugar a até `nearby.meters`. Tocar abre o Mapa em Lista, em ordem de distância, sem dizer a espécie. "Fazer esta expedição" num post abre os destinos daquele percurso. A expedição só começa em "Começar expedição"; ao encerrar aparece o resumo, e fotos e publicação são opcionais.
 
-**Feed.** Tipos novos: `checkin` (sem trilha), `encounter` (ave virtual) e `sighting` com `real: true` ("Vi na vida real", com link para o iNaturalist). Até 3 fotos extras ficam na parte privada (`posts_private.photos`).
+**Feed.** Tipos novos, cada um com rótulo próprio: `checkin` ("Check-in", sem trilha), `arphoto` ("Foto em RA · ave virtual"), `encounter` ("Aviso · ave virtual aqui") e `sighting` com `real: true` ("Vi na vida real"; o envio ao iNaturalist fica fora do jogo, só há um link). Até 3 fotos extras ficam na parte privada (`posts_private.photos`).
+
+**Curadoria (iNaturalist como referência).** A ficha do surucuá tem texto próprio para alimentação, habitat, ninho e preservação, com link da fonte (Wikipedia, que resume *Birds of the World*; vale conferir direto no BOW). O link de uma observação em Miguel Pereira (`place_id=23710`) está **pendente de verificação**: o iNaturalist não deixa ferramentas automáticas lerem as páginas. Abra https://www.inaturalist.org/observations?place_id=23710&taxon_id=3, escolha uma observação de *Trogon surrucura* com grau de pesquisa e cole o link em `species.surucua.almanac.obs`. Nada do iNaturalist é importado (fotos, sons, textos, coordenadas).
 
 ## Ligar o Firebase (gratuito, plano Spark)
 

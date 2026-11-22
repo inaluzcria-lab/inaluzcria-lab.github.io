@@ -290,13 +290,15 @@
       if (!p.example) DB.clap(p.id, on).catch(() => toast("Não deu para aplaudir agora"));
     });
     const title = p.kind === "mission" ? m.name + " com o " + petName(p.pet) : (p.title || "Expedição") + (p.kind === "place" ? " com o " + petName(p.pet) : "");
-    const where = m && (p.kind === "mission" || p.kind === "checkin" || p.kind === "encounter") ? m.partner : p.kind === "place" ? "Lugar marcado" : C.city;
+    const where = m && ["mission", "checkin", "encounter", "arphoto"].includes(p.kind) ? m.partner : p.kind === "place" ? "Lugar marcado" : C.city;
     const pets = sight ? [] : p.pets && p.pets.length ? p.pets : [p.pet];
     const stats = sight ? [] : [[String(p.xp), "XP"], [String(p.places || 1), (p.places || 1) === 1 ? "lugar" : "lugares"], [String(pets.length), pets.length === 1 ? "pet" : "pets"]];
     if (p.km > 0 && p.kind !== "checkin") stats.push([fmtKm(p.km), "no centro"]);
     if (p.mins > 0) stats.push([fmtMin(p.mins), "tempo"]);
     /* Selo do tipo: observação real fica sempre identificável ao lado dos registros de aves virtuais. */
-    const KIND = { checkin: ["Check-in", { background: "var(--gold)", color: "var(--ink)" }], sighting: ["Vi na vida real", null], encounter: ["Ave virtual", { background: "var(--lime)", color: "var(--forest)" }] }[p.kind];
+    /* Três rótulos diferentes: ave de verdade, foto da ave virtual em RA e aviso de encontro virtual. */
+    const KIND = { checkin: ["Check-in", { background: "var(--gold)", color: "var(--ink)" }], sighting: ["Vi na vida real", null],
+      arphoto: ["Foto em RA · ave virtual", { background: "var(--lime)", color: "var(--forest)" }], encounter: ["Aviso · ave virtual aqui", { background: "#fff", color: "var(--forest)", boxShadow: "inset 0 0 0 1.5px var(--forest)" }] }[p.kind];
     const badge = KIND && (!sight || p.real) ? h("span", { class: "tagdark", style: KIND[1], text: KIND[0] }) : null;
     const extra = p.photos && p.photos.length ? h("small", { style: { color: "var(--mute)" }, text: "+" + p.photos.length + (p.photos.length === 1 ? " foto" : " fotos") }) : null;
     const media = p.photo ? h("img", { class: "shot", src: p.photo, alt: sight ? "Foto de uma ave de verdade" : "Foto da expedição", loading: "lazy" })
@@ -980,7 +982,8 @@
   async function openCam(m, free) {
     stopMissionSpeech();
     camM = m; bgImg = null; closeSheet();
-    if (m.tag && !free && window.THREE) return startTag(m);
+    /* Primeira visita: só a localização (sem tag nem alvo). A tag do balcão entra da segunda visita em diante. */
+    if (m.tag && !free && window.THREE && S.ever[m.id]) return startTag(m);
     const xp = m.xp * (m.lights && isNight() ? 2 : 1);
     $("camlabel").textContent = m.name + " · +" + xp + " XP" + (m.lights && isNight() ? " 🌙" : "");
     $("camxp").textContent = S.done[m.id] === dayKey() ? "Já valeu hoje" : S.exp ? "Expedição · " + fmtKm(S.exp.dist / 1000) : "";
@@ -1019,7 +1022,18 @@
     return TERR().map(m => ({ m, d: hav(pt, [m.lat, m.lng]) })).filter(x => x.d <= max).sort((a, b) => a.d - b.d)[0] || null;
   }
   const distTxt = d => d < 20 ? "menos de 20 m" : d >= 1000 ? (d / 1000).toLocaleString("pt-BR", { maximumFractionDigits: 1 }) + " km" : Math.round(d / 10) * 10 + " m";
+  /* Bússola: o pedido de permissão precisa sair do toque da pessoa (iPhone e Chrome novos).
+     Por isso é feito já no toque, antes de esperar o GPS, e o resultado fica guardado. */
+  let oriPerm = null;
+  function askOrientation() {
+    try {
+      const D = window.DeviceOrientationEvent;
+      oriPerm = D && typeof D.requestPermission === "function" ? D.requestPermission().catch(() => "denied") : Promise.resolve(D ? "granted" : "denied");
+    } catch (_) { oriPerm = Promise.resolve("denied"); }
+    return oriPerm;
+  }
   async function openSearch() {
+    askOrientation();
     closeSheet();
     let pt;
     try { pt = await hereNow(); } catch (_) {
@@ -1045,16 +1059,79 @@
     $("camlabel").textContent = "Olhe ao redor · " + m.partner;
     $("camxp").textContent = S.exp ? "Expedição · " + fmtKm(S.exp.dist / 1000) : "";
     vc.querySelector(".camctl").prepend(h("div", { id: "encact" }));
-    drawFallback(); startAR(sp);
-    if (ar && ar.pet) { ar.pet.visible = false; Pets.pose(ar.pet, "triste"); ar.onTap = encTap; ar.y0 = -.25; } // um pouco mais alto: as ações ficam embaixo, fora da ave
-    else if (ar && ar.img) ar.img.style.visibility = "hidden";
+    drawFallback();
     camStream().then(() => { if (!$("v-cam").classList.contains("on")) return stopStream(); $("fallback").style.display = "none"; })
       .catch(() => { $("fallback").style.display = "block"; toast("Sem câmera: permita a câmera para procurar"); });
     encDraw();
     encFoods(m);
     if (visiting) { encSet("vazio"); return; }
-    /* A câmera "acha" a ave depois de alguns segundos olhando o lugar. */
+    /* AR.js (LocAR): a localização do território dita onde a ave aparece; ela é "achada" quando entra no centro da câmera.
+       Sem bússola (computador, permissão negada), a ave aparece na frente da câmera depois de alguns segundos. */
+    if (!startGeoAR(m)) encScreenFallback();
+  }
+  function encScreenFallback() {
+    if (!enc) return;
+    startAR(enc.sp);
+    if (ar && ar.pet) { ar.pet.visible = false; Pets.pose(ar.pet, "triste"); ar.onTap = encTap; ar.y0 = -.25; } // um pouco mais alto: as ações ficam embaixo, fora da ave
+    else if (ar && ar.img) ar.img.style.visibility = "hidden";
     enc.timers.push(setTimeout(() => encFound(), 2200));
+  }
+  /* Ponto de aparição: na direção do lugar cadastrado, a spawnMeters do jogador. Bem em cima do lugar
+     (GPS impreciso), usa uma direção fixa por lugar, para a ave aparecer sempre no mesmo lado. */
+  function spawnDir(user, m) {
+    const d = hav(user, [m.lat, m.lng]);
+    if (d >= 12) { const k = Math.cos(user[0] * Math.PI / 180), dx = (m.lng - user[1]) * k, dn = m.lat - user[0], l = Math.hypot(dx, dn) || 1; return [dx / l, -dn / l]; }
+    let x = 0; for (const ch of m.id) x = (x * 31 + ch.charCodeAt(0)) | 0;
+    const a = (Math.abs(x) % 360) * Math.PI / 180; return [Math.sin(a), -Math.cos(a)];
+  }
+  function startGeoAR(m) {
+    if (!window.LocAR || !window.THREE || !lastPos) return false;
+    stopAR();
+    const cv = freshCanvas("arcv"); cv.style.display = "block";
+    try {
+      const r = new THREE.WebGLRenderer({ canvas: cv, alpha: true, antialias: true, preserveDrawingBuffer: true });
+      r.setPixelRatio(Math.min(2, devicePixelRatio)); r.setSize(cv.clientWidth, cv.clientHeight, false);
+      const sc = new THREE.Scene(); Pets.lights(sc);
+      const camera = new THREE.PerspectiveCamera(60, cv.clientWidth / cv.clientHeight, .1, 2000);
+      const locar = new LocAR.LocAR(sc, camera, { gpsMinDistance: 3, gpsMinAccuracy: 60 });
+      const controls = new LocAR.DeviceOrientationControls(camera, { enablePermissionDialog: false });
+      const pet = Pets.make(enc.sp, { eq: S.eq }); pet.scale.setScalar(E.spawnScale || 2.4); pet.visible = false; Pets.pose(pet, "triste"); sc.add(pet);
+      ar = { r, sc, camera, pet, raf: 0, locar, controls, geo: true, at: null, seen: 0, oriented: false, t0: performance.now(), onTap: encTap };
+      const onOri = e => { if (e && e.alpha != null) ar && (ar.oriented = true); };
+      ar.onOri = onOri; addEventListener("deviceorientation", onOri); addEventListener("deviceorientationabsolute", onOri);
+      (oriPerm || askOrientation()).then(st => { if (!ar || !ar.geo) return; if (st === "granted") controls.connect(); else { stopAR(); encScreenFallback(); } });
+      const spawn = user => {
+        const [wx, wz] = locar.lonLatToWorldCoords(user[1], user[0]), [dx, dz] = spawnDir(user, m), k = E.spawnMeters || 6;
+        pet.position.set(wx + dx * k, -.8, wz + dz * k); pet.rotation.y = Math.atan2(-dx, -dz); pet.visible = true; ar.at = user.slice();
+      };
+      locar.on("gpsupdate", ev => { const c = ev.position.coords, u = [c.latitude, c.longitude]; lastPos = { pt: u, t: Date.now() };
+        if (!ar || !ar.geo) return; if (!ar.at || hav(ar.at, u) > 15) spawn(u); });
+      locar.fakeGps(lastPos.pt[1], lastPos.pt[0]); // origem com a posição que já liberou a busca
+      locar.startGps().catch(() => {});
+      const v = new THREE.Vector3(), fwd = new THREE.Vector3();
+      const loop = t => {
+        if (!ar || !ar.geo) return; ar.raf = requestAnimationFrame(loop);
+        controls.update(); Pets.tick(pet, t);
+        const lt = ar.lt; ar.lt = t;
+        /* Sem bússola depois de 3 s: usa a reserva (ave na frente da câmera). */
+        if (!ar.oriented && t - ar.t0 > 3000) { stopAR(); return encScreenFallback(); }
+        if (enc && enc.state === "buscando" && pet.visible) {
+          v.copy(pet.position); v.y += .6; v.project(camera);
+          const inView = v.z < 1 && Math.abs(v.x) < .45 && Math.abs(v.y) < .7;
+          ar.seen = inView ? ar.seen + Math.min(100, t - (lt || t)) : 0;
+          if (ar.seen > 500) encFound();
+          else if (t - ar.t0 > 8000) { camera.getWorldDirection(fwd); const dx = pet.position.x - camera.position.x, dz = pet.position.z - camera.position.z, l = Math.hypot(dx, dz) || 1;
+            const a = Math.atan2(fwd.x * dz / l - fwd.z * dx / l, fwd.x * dx / l + fwd.z * dz / l);
+            $("camhint").textContent = Math.abs(a) < .5 ? "Tá perto! Olhe com calma." : a > 0 ? "Gire devagar para a direita ➡" : "⬅ Gire devagar para a esquerda"; }
+        }
+        r.render(sc, camera);
+      };
+      ar.raf = requestAnimationFrame(loop);
+      const ndc = new THREE.Vector2();
+      cv.onpointerup = e => { const rc = cv.getBoundingClientRect(); ndc.set((e.clientX - rc.left) / rc.width * 2 - 1, -((e.clientY - rc.top) / rc.height) * 2 + 1);
+        if (ar && ar.pet && ar.pet.visible && petHit(ar.pet, camera, ndc) && ar.onTap) ar.onTap(); };
+      return true;
+    } catch (_) { stopAR(); return false; }
   }
   function encShowBird(on) { if (!ar) return; if (ar.pet) ar.pet.visible = on; if (ar.img) ar.img.style.visibility = on ? "visible" : "hidden"; }
   function encFound() {
@@ -1208,7 +1285,7 @@
       h("p", { style: { fontWeight: "700", margin: ".2rem 0" }, text: "Foto com o " + petName(sp) }),
       h("div", { style: { display: "grid", gap: ".5rem", marginTop: ".6rem" } },
         h("button", { class: "btn red", on: { click: () => shareStory(sm, "Encontro") } }, icon("share"), "Postar nos Stories"),
-        h("button", { class: "btn", on: { click: () => tryPublish({ kind: "encounter", nick: S.nick, missionId: m.id, pet: sp, pets: [sp], xp: 0, places: 1, photo: thumb, title: petName(sp) + " apareceu no " + m.partner, club: S.club, clubName: clubName() }) } }, "Publicar no feed"),
+        h("button", { class: "btn", on: { click: () => tryPublish({ kind: "arphoto", nick: S.nick, missionId: m.id, pet: sp, pets: [sp], xp: 0, places: 1, photo: thumb, title: petName(sp) + " apareceu no " + m.partner, club: S.club, clubName: clubName() }) } }, "Publicar no feed"),
         h("button", { class: "btn alt", on: { click: () => download(blob, "encontro-" + m.id + ".jpg") } }, "Baixar foto"),
         canHome ? h("button", { class: "btn alt", on: { click: () => { closeSheet(); encTakeHome(); } } }, icon("garden"), "Levar para o Jardim") : null)));
   }
@@ -1368,6 +1445,7 @@
   let seek = null;
   async function openSeek(m) {
     if (!window.LocAR || !window.THREE) return toast("Modo Procurar indisponível neste aparelho");
+    const perm = askOrientation();
     stopMissionSpeech();
     closeSheet(); closeCam(); camM = m;
     const vc = $("v-cam"); vc.classList.add("on", "seek"); overlayOpened();
@@ -1386,10 +1464,8 @@
       const sc = new THREE.Scene(); Pets.lights(sc);
       const camera = new THREE.PerspectiveCamera(60, cv.clientWidth / cv.clientHeight, .1, 2000);
       const locar = new LocAR.LocAR(sc, camera, { gpsMinDistance: 3, gpsMinAccuracy: 60 });
-      const controls = new LocAR.DeviceOrientationControls(camera, { enablePermissionDialog: true, preferConfirmDialog: true });
-      controls.on("deviceorientationgranted", e => e.target.connect());
-      controls.on("deviceorientationerror", () => { info.textContent = "Sem bússola neste aparelho: use o mapa para chegar."; });
-      controls.init();
+      const controls = new LocAR.DeviceOrientationControls(camera, { enablePermissionDialog: false });
+      perm.then(st => { if (st === "granted") controls.connect(); else info.textContent = "Sem bússola neste aparelho: use o mapa para chegar."; });
       const pet = Pets.make("surucua", { eq: S.eq }); pet.scale.setScalar(2.4); sc.add(pet); Pets.play(pet, "voo");
       const fwd = new THREE.Vector3();
       seek = { r, locar, controls, pet, raf: 0, user: null, dir: null, m };
@@ -1489,6 +1565,8 @@
   function stopAR() {
     if (!ar) return;
     if (ar.raf) cancelAnimationFrame(ar.raf);
+    if (ar.geo) { ar.geo = false; try { ar.locar.stopGps(); } catch (_) {} try { ar.controls.disconnect(); } catch (_) {}
+      if (ar.onOri) { removeEventListener("deviceorientation", ar.onOri); removeEventListener("deviceorientationabsolute", ar.onOri); } $("arcv").onpointerup = null; }
     if (ar.r) { ar.r.dispose(); ar.r.forceContextLoss && ar.r.forceContextLoss(); }
     if (ar.img) ar.img.remove();
     ar = null;
@@ -2245,7 +2323,7 @@
         h("h2", { text: sp.name }), h("p", null, h("i", { text: sp.sci }))),
       sp.fact ? h("p", { text: sp.fact }) : null,
       sp.skill ? h("p", null, h("b", { text: "Habilidade: " }), sp.skill) : null,
-      h("div", { class: "card" }, field("O que come", a.diet), field("Onde vive", a.habitat), field("Ninho", a.nest),
+      h("div", { class: "card" }, field("O que come", a.diet), field("Onde vive", a.habitat), field("Ninho", a.nest), field("Por que preservar", a.conserve),
         h("p", { style: { margin: ".6rem 0 0", fontSize: ".85rem" } }, "Registrada em " + C.city + " · ", okUrl(a.obs) ? ext(a.obs, "ver observação no iNaturalist") : h("span", { class: "tagdark", style: { background: "var(--gold)", color: "var(--ink)" }, text: "pendente de verificação" }))),
       h("p", { class: "demo", text: (sp.review ? "Lista de espécies em revisão por especialista." : "Revisado por especialista.") + " Arte e modelo 3D do jogo; nenhuma foto, som ou texto do iNaturalist." }),
       has && PETS.length > 1 ? h("button", { class: "btn", disabled: S.pets[p].away, on: { click: () => { S.sel = p; save(); closeSheet(); toast(sp.name + " vai com você!"); } } }, S.sel === p ? "Já está com você" : "Levar na expedição") : null);

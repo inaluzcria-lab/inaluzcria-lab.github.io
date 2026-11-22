@@ -117,7 +117,7 @@ service cloud.firestore {
     function validPost(d) {
       return d.keys().hasOnly(['v', 'kind', 'nick', 'missionId', 'missions', 'title', 'pet', 'pets', 'xp', 'km', 'mins', 'places', 'club', 'clubName', 'claps', 'createdAt', 'real'])
         && d.v == 2
-        && d.kind in ['mission', 'expedition', 'place', 'checkin', 'encounter', 'sighting']
+        && d.kind in ['mission', 'expedition', 'place', 'checkin', 'encounter', 'arphoto', 'sighting']
         && (opt(d, 'real') || (d.real is bool && d.kind == 'sighting'))
         && text(d.nick, 20) && slug(d.pet)
         && d.xp is int && d.xp >= 0 && d.xp <= 2000

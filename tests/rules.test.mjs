@@ -77,6 +77,7 @@ await t("check-in sem trilha publica", () => assertSucceeds(pubAs("CHK0001", { k
 await t("check-in com trilha é recusado", () => assertFails(pubAs("CHK0002", { kind: "checkin" }, { route: [1, 2, 3, 4] })));
 await t("Vi na vida real publica com real: true", () => assertSucceeds(pubAs("REAL001", { kind: "sighting", real: true, pet: "ave-real" }, { photo: jpg })));
 await t("real só vale em sighting", () => assertFails(pubAs("REAL002", { kind: "mission", real: true })));
+await t("foto em RA (ave virtual) publica", () => assertSucceeds(pubAs("ARF0001", { kind: "arphoto", title: "Surucuá apareceu no Cheirin" }, { photo: jpg })));
 await t("encontro (ave virtual) publica", () => assertSucceeds(pubAs("ENC0001", { kind: "encounter", title: "Tem uma ave virtual no Cheirin" })));
 await t("até 3 fotos extras na parte privada", () => assertSucceeds(pubAs("PHO0001", { kind: "expedition" }, { photo: jpg, photos: [jpg, jpg, jpg] })));
 await t("4 fotos extras é recusado", () => assertFails(pubAs("PHO0002", { kind: "expedition" }, { photos: [jpg, jpg, jpg, jpg] })));
